@@ -45,7 +45,8 @@ sophisticated control flow analysis that rivals or exceeds other Python type che
 8. [Implementation Status & Roadmap](#8-implementation-status--roadmap)
    - 8.1 [What's Implemented](#81-whats-implemented)
    - 8.2 [Known Gaps](#82-known-gaps)
-   - 8.3 [Prioritized Roadmap](#83-prioritized-roadmap)
+   - 8.3 [Non-Goals: Unreachable Code Skipping](#83-non-goals-unreachable-code-skipping)
+   - 8.4 [Prioritized Roadmap](#84-prioritized-roadmap)
 9. [Other Control Flow Constructs](#9-other-control-flow-constructs)
    - 9.1 [Try/Except/Finally](#91-tryexceptfinally)
    - 9.2 [Context Managers (with)](#92-context-managers-with)
@@ -928,21 +929,37 @@ benefit from this analysis.
    - Disabled due to complexity (GitHub issue #1251)
    - Affects initialization tracking in `x := value or default` patterns
 
-4. **Unreachable Code After NoReturn**
-   - Code after a NoReturn call is not marked as unreachable for type checking
-   - Can lead to false positive type errors in unreachable code
-
-5. **Class Patterns with Arguments**
+4. **Class Patterns with Arguments**
    - Use `Placeholder` narrow ops that prevent exact negation
    - Workaround via positive ops only works for @final classes
 
-### 8.3 Prioritized Roadmap
+### 8.3 Non-Goals: Unreachable Code Skipping
+
+Some type checkers skip type-checking code that follows a `NoReturn` call. Pyrefly
+intentionally does **not** do this for two reasons:
+
+1. **Architectural constraints**: Bindings are created at binding time, but we don't
+   know if an expression returns `Never` until solve time. Suppressing errors in
+   "unreachable" code would require either threading unreachability through every
+   error emission path or creating conditional bindings for every statement after
+   a potential NoReturn call - both prohibitively invasive changes.
+
+2. **Design philosophy**: The Pyrefly team believes all code should be type-checked,
+   even if it's unreachable. Skipping unreachable code:
+   - Would disable IDE features (hover, go-to-definition) for that code
+   - Masks potential bugs that would surface if the code became reachable
+   - Creates inconsistent behavior that's hard for users to understand
+
+Pyrefly correctly handles the *type-level* implications of NoReturn (excluding
+terminated branches from Phi joins, so narrowing works correctly). The tradeoff
+is that syntactically unreachable code may produce type errors.
+
+### 8.4 Prioritized Roadmap
 
 | Priority | Feature | Dependencies | Effort | Impact |
 |----------|---------|--------------|--------|--------|
 | **P1** | If/elif exhaustiveness | None | Medium | Medium |
 | **P1** | Loop initialization | Type-aware init | Medium | Medium |
-| **P2** | Unreachable code detection | Phi termination | Medium | Medium |
 | **P2** | Class patterns without Placeholder | Narrowing changes | Large | Medium |
 | **P3** | Walrus in bool ops | Type-aware init | Medium | Low |
 
@@ -958,9 +975,6 @@ benefit from this analysis.
    - `for i in non_empty_list:` guarantees at least one iteration
    - `while condition():` may not execute at all
    - Need `is_definitely_nonempty_iterable()` check
-
-3. **Unreachable code** - Mark code after NoReturn as unreachable to suppress
-   false positive type errors
 
 ---
 
@@ -1371,6 +1385,7 @@ Type-aware control flow builds on Pyrefly's narrowing infrastructure:
 |---------|------|---------|
 | v0 | 2026-02-02 | Initial unified document |
 | v0.1 | 2026-02-02 | Updated to reflect actual implementation status. Key changes: (1) Phi termination filtering is implemented, not 0%. (2) Section 3 data structures updated to match actual code (BranchInfo instead of PhiTerminationInfo, corrected LastStmt::Match and MatchExhaustive). (3) Section 5 marked as Implemented with actual code references. (4) Section 6 updated to reflect UninitializedCheck expectation instead of CheckedForward binding. (5) Added Section 9 covering try/except, context managers, assert, and loops. (6) Updated implementation percentages throughout. |
+| v0.2 | 2026-02-02 | Added Section 8.3 documenting that unreachable code skipping is a non-goal due to architectural constraints (binding/solving split) and design philosophy (type-check all code, preserve IDE features). Removed from roadmap. |
 
 ---
 
