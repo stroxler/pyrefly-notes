@@ -951,3 +951,49 @@ Phase 2's invariant enforcement only affects `RevisitingDone` within the same SC
 - `pyrefly/lib/alt/answers.rs` - LookupAnswer trait, Answers struct
 - `pyrefly/lib/solver/solver.rs` - Var creation (fresh_* methods), force_var
 - `pyrefly/lib/alt/traits.rs` - Solve trait, record_recursive
+
+---
+
+## Future Optimizations
+
+### O(n²) → O(n) SCC Completion Check
+
+The current `is_complete()` implementation iterates over all nodes to check if all are `Done`:
+
+```rust
+fn is_complete(&self) -> bool {
+    self.node_state.values().all(|state| *state == NodeState::Done)
+}
+```
+
+This is O(n) per call, and since it's called after each node completes, the total cost is O(n²) for an SCC of size n.
+
+**Impact**: In practice, most SCCs are small (2-3 nodes). However, we've observed SCCs with 500+ nodes in SymPy, where this becomes non-trivial.
+
+**Proposed optimization**: Track completion count incrementally:
+
+```rust
+struct Scc {
+    // ... existing fields ...
+    done_count: usize,  // Track how many are Done
+}
+
+impl Scc {
+    fn on_calculation_finished(&mut self, current: &CalcId) {
+        if let Some(state) = self.node_state.get_mut(current) {
+            if *state != NodeState::Done {
+                *state = NodeState::Done;
+                self.done_count += 1;
+            }
+        }
+    }
+
+    fn is_complete(&self) -> bool {
+        self.done_count == self.node_state.len()
+    }
+}
+```
+
+This makes `is_complete()` O(1) instead of O(n), reducing total cost from O(n²) to O(n).
+
+**Priority**: Low - defer until performance profiling shows this as a bottleneck.
