@@ -100,17 +100,20 @@ expand(type, visiting={}) =
 ```
 
 Note: the raw layer's RHS evaluation calls `untype_opt`, which converts
-`TypeAlias(Ref(...))` to `UntypedAlias(Ref(...))`. So in practice, Refs
-in the raw body appear as `UntypedAlias(Ref(...))`. The expansion walker
-must handle both forms — `TypeAlias(Ref(...))` (before `untype_opt`) and
-`UntypedAlias(Ref(...))` (after `untype_opt`).
+`TypeAlias(Ref(...))` to `UntypedAlias(Ref(...))` and inlines
+`TypeAlias(Value(...))` (stripping the wrapper). So after `untype_opt`, there
+are **no** `TypeAlias(Ref(...))` nodes remaining — only `UntypedAlias(Ref(...))`.
+The expansion walker should primarily match on `UntypedAlias(Ref(...))`.
+Matching on `TypeAlias(Ref(...))` in the algorithm above is defensive (for
+any pre-`untype_opt` paths), but in the raw-layer RHS output it will not
+appear.
 
 Note: expansion **inlines** the referenced alias body, stripping the
 `TypeAlias` wrapper. This is intentional — it matches the behavior of
 `Forward`-based resolution today, where the alias indirection disappears
 and only the underlying type remains. Generic aliases wrapped in `Forall`
 are handled by the `other` arm, which recurses into children and eventually
-reaches the `TypeAlias(Ref(...))` node inside the `Forall`.
+reaches the `UntypedAlias(Ref(...))` node inside the `Forall`.
 
 Key properties:
 - **Reads raw layer only**: no expanded-layer dependencies between aliases
@@ -222,19 +225,25 @@ design anticipated deferred static type bindings.
 **Change:** Remove the `if used_in_static_type` special case and have ALL
 BoundName creations go through `defer_bound_name`, regardless of usage.
 
-**Known differences from the immediate path** (neither should affect behavior):
+**This is not a pure no-op.** There are two known behavioral differences:
 - The deferred path short-circuits Forward chains: it produces
   `Forward(terminal_idx)` rather than `Forward(first_idx)`. Both resolve to
   the same value at solve time since Forwards are chased transitively.
-- When a partial type exists in the chain, the deferred path calls
-  `mark_does_not_pin_if_first_use`. The immediate path doesn't, but this is
+- When a partial type exists in the Forward chain, the deferred path calls
+  `mark_does_not_pin_if_first_use`. The immediate path doesn't. This is
   arguably more correct — it explicitly marks that static type references
-  shouldn't pin partial types (which they already don't, since
-  `StaticTypeInformation` has no `current_idx`).
+  shouldn't pin partial types. In practice, `StaticTypeInformation` has no
+  `current_idx`, so it already can't pin. But the explicit marking changes
+  the `FirstUse` state from `Undetermined` to `DoesNotPin`, which could
+  affect how subsequent non-static reads resolve in edge cases (e.g., a
+  static type annotation being the first reference to a partially-typed
+  variable like `x = []`).
 
 **Verification:** Run the full test suite. If all tests pass, this confirms
-the change is behavioral equivalent and establishes a uniform deferred
-BoundName path that the subsequent steps can build on.
+the change is behaviorally equivalent in practice and establishes a uniform
+deferred BoundName path that the subsequent steps can build on. Any test
+failures would indicate cases where the `DoesNotPin` marking produces
+different inference results — these should be examined for correctness.
 
 **Why this matters:** Steps 2-3 below add a `Usage::TypeAliasRhs` variant
 that must go through the deferred path (to handle forward references to
@@ -255,12 +264,16 @@ code path to modify, and (c) isolates any issues to a single, simple change.
 TypeAliasRef {
     name: Name,
     key_type_alias: Idx<KeyTypeAlias>,
+    tparams: TypeAliasParams,
 },
 ```
 
 At solve time, produces `Forallable::TypeAlias(TypeAliasData::Ref(r)).forall(tparams)`
-where tparams are looked up from a side channel (since legacy alias tparams
-aren't known at binding time).
+where tparams are computed from the stored `TypeAliasParams` via
+`create_type_alias_params_recursive`. The `tparams` field is populated by
+`finalize_bound_name` (Step 3), which extracts it from the `Binding::TypeAlias`
+found at the end of the Forward chain — by that point, legacy tparams have
+been collected during the `ensure_type` traversal.
 
 ### Step 2: Add a `Usage::TypeAliasRhs` variant
 
@@ -295,9 +308,17 @@ instead of `StaticTypeInformation`:
 - `ensure_type_alias_type_args` in `stmt.rs` (`TypeAliasType(...)` calls)
 
 This requires threading the new usage through `ensure_type` / `ensure_type_impl`,
-which currently hardcodes `Usage::StaticTypeInformation`. The simplest approach
-is to add a `usage` parameter to `ensure_type` (or use an enum to select
-between static-type and type-alias-rhs modes).
+which currently hardcodes `Usage::StaticTypeInformation`. To minimize churn,
+keep `ensure_type` as a convenience wrapper that passes
+`Usage::StaticTypeInformation`, and add `ensure_type_with_usage` for the 3
+alias construction sites:
+```rust
+pub fn ensure_type(&mut self, x: &mut Expr, tparams: &mut Option<LegacyTParamCollector>) {
+    self.ensure_type_with_usage(x, tparams, &mut Usage::StaticTypeInformation);
+}
+```
+Only the 3 alias sites call `ensure_type_with_usage(..., Usage::TypeAliasRhs)`.
+All other callers remain unchanged.
 
 **Legacy tparam compatibility:** `intercept_lookup` creates
 `KeyLegacyTypeParam` and `PossibleLegacyTParam` bindings synchronously
@@ -315,15 +336,15 @@ while tparam names go through `PossibleLegacyTParam` as before.
 In `finalize_bound_name`, add handling for `Usage::TypeAliasRhs`: follow
 the `Forward` chain from `lookup_result_idx` (table lookups only, no solving)
 until reaching the first non-`Forward` binding. If it's
-`Binding::TypeAlias { name, key_type_alias, .. }`, produce
-`Binding::TypeAliasRef { name, key_type_alias }` instead of the usual
+`Binding::TypeAlias { name, key_type_alias, tparams, .. }`, produce
+`Binding::TypeAliasRef { name, key_type_alias, tparams }` instead of the usual
 `Binding::Forward`. Otherwise fall through to normal Forward handling.
 
 ```rust
 // In finalize_bound_name, before the existing logic:
 if matches!(deferred.usage, Usage::TypeAliasRhs) {
-    if let Some((name, key_type_alias)) = self.follow_to_type_alias(deferred.lookup_result_idx) {
-        self.insert_binding_idx(deferred.bound_name_idx, Binding::TypeAliasRef { name, key_type_alias });
+    if let Some((name, key_type_alias, tparams)) = self.follow_to_type_alias(deferred.lookup_result_idx) {
+        self.insert_binding_idx(deferred.bound_name_idx, Binding::TypeAliasRef { name, key_type_alias, tparams });
         return;
     }
     // Not a type alias — fall through to normal Forward
@@ -334,7 +355,21 @@ if matches!(deferred.usage, Usage::TypeAliasRhs) {
 
 The helper `follow_to_type_alias` walks the binding table following `Forward`
 pointers until it finds a non-Forward binding. If it's `Binding::TypeAlias`,
-return the name and `key_type_alias` idx. Otherwise return `None`.
+return the name, `key_type_alias` idx, and `tparams`. Otherwise return `None`.
+
+**Why no Phi in the chain:** Type alias names typically have a single
+definition site, so `Definition::needs_anywhere` stays `false` (it's only
+set to `true` when `merge()` is called for multiple definitions). This
+means the static scope assigns `StaticStyle::SingleDef` → `Key::Definition`,
+not `StaticStyle::Anywhere` → `Key::Anywhere`. Only `Key::Anywhere`
+produces a `Binding::Phi`. So the Forward chain for a normal type alias is
+`Forward` → `Key::Definition` → `Binding::TypeAlias`, with no `Phi`.
+
+For the rare case of conditional type alias definitions (e.g.,
+`if COND: type X = A; else: type X = B`), the name gets `Key::Anywhere` →
+`Phi`, and `follow_to_type_alias` will stop at the `Phi` and return `None`,
+falling through to normal `Forward` handling. This is correct — conditional
+aliases are ambiguous and cannot safely produce `TypeAliasRef`.
 
 **Why deferred**: After Step 0, all BoundName creation goes through the
 deferred path. Deferred processing runs after the full AST traversal, by
@@ -368,10 +403,27 @@ current `Forward`-based resolution for non-recursive aliases.
 ### Step 6: Handle tparams for `Binding::TypeAliasRef`
 
 For generic aliases, `Binding::TypeAliasRef` needs tparams to produce a proper
-`Forall` wrapper. Since legacy alias tparams aren't known at binding time,
-store a `type_alias_tparams` map in `BindingsInner` that maps
-`(Name, Idx<KeyTypeAlias>)` to `TypeAliasParams`. This is populated after
-`ensure_type` completes at each alias construction site.
+`Forall` wrapper. Since `finalize_bound_name` runs after the full AST
+traversal, the `Binding::TypeAlias` entries (which store
+`tparams: TypeAliasParams`) are already finalized — including legacy tparams,
+which are collected during the `ensure_type` traversal and stored in
+`Binding::TypeAlias` before `process_deferred_bound_names` runs.
+
+Therefore, `finalize_bound_name` can extract `tparams` directly from the
+`Binding::TypeAlias` it finds when following the Forward chain, and store
+them in `Binding::TypeAliasRef`:
+
+```rust
+TypeAliasRef {
+    name: Name,
+    key_type_alias: Idx<KeyTypeAlias>,
+    tparams: TypeAliasParams,
+},
+```
+
+No separate `type_alias_tparams` map is needed. At solve time,
+`create_type_alias_params_recursive` converts the `TypeAliasParams` to
+`TParams` for the `Forall` wrapper.
 
 **Generic subscripts at solve time:** When a generic type alias `B[T]` is
 referenced inside another alias's RHS, `Binding::TypeAliasRef` produces a
