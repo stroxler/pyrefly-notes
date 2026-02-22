@@ -279,14 +279,14 @@ that, Fix A is the highest-value change for addressing the hang.
 
 ### Phase 2: Work Amplification
 
-4. **Fix A (highest value): Count merges within
-   `drive_all_iteration_members`.** Track the number of merges during a
-   single call. Either treat each merge as a demotion immediately
-   (incrementing the demotion counter and returning early to let the outer
-   loop handle it), or set a per-call merge limit and bail out when
-   exceeded. This directly removes the K x N amplification from Factor 1.
-   If merge amplification isn't controlled, the work can explode even with
-   only ~10 threads, making Fixes B and C insufficient on their own.
+4. **Fix A (highest value): Merge flag + defer Fresh resets.** Track whether
+   a merge happened during the current drive loop. If a merge occurred,
+   demote at the end of the iteration and *then* reset all members to Fresh
+   as part of the demotion. This removes the K x N amplification from Factor
+   1 by preventing mid-iteration merge events from resetting already-driven
+   members. If merge amplification isn't controlled, the work can explode
+   even with only ~10 threads, making Fixes B and C insufficient on their
+   own.
 
 5. **Fix B: Early-exit when another thread has committed.** During
    `drive_all_iteration_members`, before driving a member, check
@@ -306,41 +306,45 @@ that, Fix A is the highest-value change for addressing the hang.
 
 ## Concrete Plan (v4)
 
-This plan prioritizes reductions in multi-thread amplification first, then
-addresses the smaller correctness issues that can further increase merge
-frequency or strand SCCs. Each step should keep legacy mode green.
+This plan fixes the three correctness bugs first, since they are simpler
+changes and bugs #1 and #2 may reduce the severity of the amplification
+problem. After that, it addresses multi-thread work amplification. Each
+step should keep legacy mode green.
 
-### Phase 1 — Bound work per iteration (hang mitigation)
+### Phase 1 — Fix the three correctness bugs
 
-1. **Count merges during `drive_all_iteration_members`.**
-   - Add a counter in `CalcStack` incremented whenever a merge occurs
-     (membership back-edge merge or `merge_sccs`).
-   - In `drive_all_iteration_members`, snapshot the counter before the loop.
-   - If it changes during driving, return early and let the outer loop treat
-     this as a demotion (restart iteration 1).
-   - Rationale: converts the K×N amplification into a single demotion, which
-     is already bounded by `MAX_DEMOTIONS`.
-
-2. **Optional early-exit for committed members (if needed).**
-   - Before driving a member, check `calculation.get()`.
-   - If present, store it in `IterationNodeState::Done` and skip solving.
-   - Only do this if Phase 1 still shows heavy duplication.
-
-### Phase 2 — Fix the three correctness bugs
-
-3. **Fix `segment_size` asymmetry.**
+1. **Fix `segment_size` asymmetry.**
    - Increment `segment_size` in the iterative bypass path before returning,
      or skip decrement in `pop()` for bypassed nodes.
    - Prevents inaccurate overlap detection that can trigger spurious merges.
 
-4. **Prevent absorption orphaning.**
+2. **Prevent absorption orphaning.**
    - If `iterative_resolve_scc` sees `top_scc_detected_at != scc_identity`,
      verify an ancestor SCC is iterating before returning.
    - If no ancestor iterating SCC exists, continue with the merged SCC.
 
-5. **Include free-floating nodes in `iterative.node_states`.**
+3. **Include free-floating nodes in `iterative.node_states`.**
    - After `merge_sccs` adds free-floating nodes to `node_state`, also insert
      them into `iterative.node_states` (as `Fresh`) if iteration is active.
+
+### Phase 2 — Bound work per iteration (hang mitigation)
+
+4. **Track a merge flag and defer Fresh resets.**
+   - Add a `merge_happened` flag in `CalcStack` (or on the SCC) that is set
+     whenever a merge occurs (membership back-edge merge or `merge_sccs`).
+   - During a merge, *do not* reset iteration node states to Fresh. Only
+     update the SCC membership (`node_state`) to include the new members and
+     mark `merge_happened = true`.
+   - Clear the flag at the start of each iteration.
+   - After driving all members, if the flag is set, demote and *then* reset
+     all members to Fresh (rebuilding iteration state). This converts the
+     K×N amplification into a single demotion, which is already bounded by
+     `MAX_DEMOTIONS`.
+
+5. **Optional early-exit for committed members (if needed).**
+   - Before driving a member, check `calculation.get()`.
+   - If present, store it in `IterationNodeState::Done` and skip solving.
+   - Only do this if Phase 2 still shows heavy duplication.
 
 ### Phase 3 — Only if nondeterminism persists
 
@@ -357,3 +361,10 @@ frequency or strand SCCs. Each step should keep legacy mode green.
   orphaned, so they may contribute to hangs as well as correctness issues.
 - Bug (3) is less likely to cause hangs, but it can affect convergence and
   error stability, contributing to nondeterminism.
+
+## Additional Ideas (Optional)
+
+- **Merge counter for observability.** In addition to the merge flag, a
+  counter can be recorded (per-SCC or per-iteration) to quantify how many
+  merges occur. This is useful for logging and profiling but is not required
+  for correctness or to fix the hang.
