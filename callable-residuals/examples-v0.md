@@ -698,7 +698,7 @@ Status:
 Moved to **0.1** because this is an already-correct trunk baseline and not
 residual-specific behavior.
 
-### 3.12 No-leak sanitization on out-of-scope vars
+### 3.12 No-leak visibility-gating on out-of-scope vars
 `source: new-edge-candidate`
 
 ```python
@@ -707,7 +707,8 @@ residual-specific behavior.
 # Assert final reveals/errors do not surface internal residual artifacts.
 ```
 
-Target coverage: call-end sanitization of residual leaks outside allowed scope.
+Target coverage: non-target aliases must flatten via residual visibility gating;
+do not rely on call-end sanitization for correctness.
 
 ### 3.13 Auto-promotion split across callable vs non-callable outputs
 `source: new-edge-candidate`
@@ -1129,7 +1130,7 @@ Target coverage:
 Status:
 - phase-gated until overload residual pruning/delayed diagnostics are implemented.
 
-### 3.27 ParamSpec first-branch fallback policy (explicit)
+### 3.27 ParamSpec fallback policy (provisional)
 `source: new-edge-candidate`
 
 ```python
@@ -1147,11 +1148,10 @@ r = use_paramspec(f)
 ```
 
 Target coverage:
-- codifies provisional ParamSpec fallback rule (first surviving overload branch
-  after deterministic pruning/traversal) when the callable-shape fallback path
-  is entered.
-- this is a callable-shape fallback policy and is distinct from per-var
-  multi-candidate residual arbitration (`fallback_for_residuals`).
+- tracks provisional ParamSpec fallback behavior while argument-selected
+  narrowing remains deferred.
+- callable-shape fallback policy remains follow-up work; this example is not a
+  normative v1 rule yet and should not force early-commit behavior.
 
 ## 4) Notes for Next Pass
 
@@ -1159,4 +1159,4 @@ Target coverage:
   pencil-and-paper core set.
 - Keep both kinds of entries:
   - behavior-defining examples (design semantics)
-  - invariant tests (no-leak, boundary sanitization, deterministic fallback)
+  - invariant tests (no-leak gating, boundary elimination, deterministic fallback)

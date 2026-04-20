@@ -1,5 +1,12 @@
 # Callable Residual Design (v0, draft)
 
+> Status note (superseded for generic-residual implementation details):
+> `design-v1.md` is now the normative source for generic-residual behavior and
+> implementation constraints (especially residual visibility/sanitization
+> strategy, polarity requirements, marker scope/timing, and cache side-effect
+> rules). Keep this v0 doc as historical design context and for ideas that may
+> still apply to later overload work.
+
 ## Goal
 Allow delayed resolution of call-scoped type-variable identities when those
 variables come from callable pattern components in parameter position.
