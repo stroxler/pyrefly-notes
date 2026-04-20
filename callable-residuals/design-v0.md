@@ -206,6 +206,14 @@ Policy:
 - sanitization targets out-of-scope frontier vars only; it does not recursively
   flatten residual payload internals that remain inside in-scope residuals
 
+Traversal rule (v0 explicit):
+- sanitization must inspect out-of-scope frontier answers recursively, including
+  nested residual payloads such as overload branch maps (`Var -> Type`), to
+  detect and flatten leaked deferred forms on those out-of-scope vars
+- this recursive inspection is for leak detection/flattening on out-of-scope
+  vars only; it does not force flattening of residual payload internals that
+  remain inside in-scope residual-bearing vars
+
 Reachability note:
 - it is currently unclear whether some leak shapes are practically reachable
   after normal finalization paths (for example, union-find-linked `Unwrap` vars
@@ -222,6 +230,11 @@ Cost note:
 - expected baseline shape is `O(branches * frontier_vars)` snapshot/restore in
   overload probing; if frontier sizes are large in practice, prefer incremental
   or lazy frontier/snapshot strategies as follow-up optimization
+- v0 implementation should ship with concrete counters (at minimum):
+  `call_frontier_size`, `call_touched_vars`, `overload_probe_branch_count`,
+  `snapshot_restore_count`, `sanitize_vars_scanned`, `sanitize_rewrites_count`
+- counters should be recorded per call solve (or aggregated deterministically)
+  so frontier/sanitization cost can be evaluated before changing architecture
 
 Touched-vars source note:
 - sanitize-phase processing may use a "vars touched during call solve" set to widen
@@ -267,7 +280,8 @@ residuals from other witnesses.
 ParamSpec callable-shape fallback (v0 explicit rule):
 - when callable-shape fallback is required for a ParamSpec-bearing projection
   context (for example recovering `P.args`/`P.kwargs`-driven callable shape from
-  an ambiguous overload witness), select the first declared overload branch
+  an ambiguous overload witness), select the first surviving overload branch
+  after deterministic pruning/traversal
 - this is intentionally aligned with current trunk behavior for overload-based
   ParamSpec fallback and is a temporary policy choice for v0
 - this rule is scoped to callable-shape fallback for ParamSpec contexts only
@@ -303,7 +317,12 @@ Termination note:
 - each callable-legal expansion step eliminates at least one currently visited
   residual occurrence in the output type tree
 - with finite input type trees and finite residual payloads, this yields
-  termination; v0 still permits defensive depth/iteration guards
+  termination
+- v0 must still enforce a hard defensive iteration/depth guard:
+  `MAX_RESIDUAL_FINALIZE_ITERS = 8` for local fixed-point loops
+- if the guard is hit: emit an internal diagnostic, apply boundary fallback
+  flattening for remaining deferred forms, and continue in production mode
+  (debug mode may panic/assert per invariant policy)
 
 ### Required-concrete elimination
 If a residual appears in a non-callable-required-concrete position, eliminate to
@@ -335,8 +354,9 @@ Export-hook contract (v0 required):
      `Type::CallableResidual`) to local fixed point
   2. enforce stricter export policy (no deferred forms anywhere, including class
      `TArgs`)
-  3. emit internal diagnostic if defensive iteration/depth guard is hit, then
-     flatten remaining deferred forms via fallback before returning
+  3. use the same hard guard (`MAX_RESIDUAL_FINALIZE_ITERS = 8`); if hit, emit
+     internal diagnostic and flatten remaining deferred forms via fallback
+     before returning
 - no serializer/exporter may bypass this hook
 
 ## Shared abstraction, separate internals
@@ -963,6 +983,25 @@ Recording granularity note:
 - this does not include unrelated want-side `Forall` stripping paths that do not
   perform value-side instantiation
 
+Deferred-finish rule for value-side `Forall` vars (new):
+- in residual-enabled call-context comparisons (covariant/contravariant
+  callable matching where residual semantics are active), fresh vars created by
+  value-side `Forall` instantiation must **not** be finished immediately inside
+  subset recursion
+- instead, register them into call-local deferred finishing state (for example
+  `CallContext.deferred_finish_vars`)
+- call completion must run one batch finish over:
+  - call-scoped quantified vars, plus
+  - deferred value-side `Forall` vars collected during subset recursion
+- rationale:
+  - immediate subset-local finishing loses correlation when solving chooses a
+    value-side `Forall` var instead of a call-scoped var
+  - this is especially relevant for ParamSpec-preserving higher-order flows,
+    where a call-scoped `P` may route through value-side generic structure and
+    still must behave as residual-capable at call-level finalize
+- non-residual contexts keep trunk behavior: immediate subset-local finishing is
+  still allowed where no residual semantics are active
+
 Operational note:
 - this remains intentionally metadata-driven; no disjunctive generic witness
   object is required for v0/v1 if current variable/bounds state carries
@@ -1008,6 +1047,8 @@ Shared skeleton (with overload-only branch pass):
    - generic path: unary `Generic` marker
 5. continue normal solving; bounds remain primary
 6. at `finish_quantified` (batch):
+   - include both call-scoped vars and call-local deferred value-side `Forall`
+     vars in the finish batch for residual-enabled call contexts
    - bounds-solving pass: commit answers for vars with
      concrete/equivalent non-residual bounds
    - residual-solving pass (overload residuals only): for remaining vars,
@@ -1117,6 +1158,44 @@ v0 specification boundary:
   implementations are acceptable in v0, but per-implementation run-to-run drift
   is not
 
+## Change Log
+- 2026-04-20: Updated overload probe capture rule to replay-safe recording.
+  - Previous draft language allowed interpreting branch-probe captures as
+    directly persistable projection state.
+  - Implementation constrained this: branch probes are isolated and rolled back;
+    metadata is recorded only after deterministic winner replay succeeds on live
+    state.
+  - Motivation: current probe snapshots do not provide full transactional
+    rollback for all recursive/cache side effects, so replay-after-selection is
+    the safe v0 boundary.
+- 2026-04-20: Clarified residual arbitration policy for multiple overload
+  candidates and mixed generic+overload markers.
+  - Multiple distinct overload residual candidates now explicitly do not commit
+    to one witness in finishing; they fall back through the existing quantified
+    fallback path.
+  - Mixed generic+overload residual metadata remains generic-first in v0 to
+    preserve generic path stability until richer overload witness coherence is
+    implemented.
+- 2026-04-20: Refined overload capture/finalize behavior for ambiguity and slot
+  semantics.
+  - Capture now preserves all deterministic successful overload probe
+    candidates (not only first match), and records metadata only when live
+    replay succeeds without new specialization errors.
+  - This allows finish-time ambiguity detection to fallback rather than
+    silently pinning one branch.
+  - Finalize now distinguishes callable parameter-type slots vs ParamSpec slot:
+    overload `Params` projections apply only to ParamSpec slot in v0; ordinary
+    parameter type slots still fallback until `TypeParam(n)` projection support
+    lands.
+- 2026-04-17: Added deferred-finish semantics for value-side `Forall`
+  instantiation vars in residual-enabled call-context comparisons.
+  - Previous draft allowed immediate subset-local finishing for those vars.
+  - Updated rule requires call-local registration and inclusion in call-level
+    finish batch.
+  - Motivation: preserve residual behavior when solving routes through
+    value-side `Forall` vars (not only call-scoped vars), including ParamSpec
+    correlation scenarios.
+
 ## Non-goals (current phase)
 - Defining full multi-witness intersection semantics.
 - Finalizing every overload/generic corner case before landing an incremental
@@ -1130,5 +1209,10 @@ v0 specification boundary:
 3. Enforce elimination at substitution finalization boundaries:
    - return/member/binding paths: no residual outside internal class `TArgs`
    - export/serialization path: no residual anywhere (including `TArgs`)
-4. Incrementally add payload behavior (overload first or generic first) behind
-   this shared boundary contract.
+4. Implement generic residual behavior first, then overload residual behavior.
+5. Test phasing requirement:
+   - boundary/invariant tests for `CallableResidual` must be generic-driven in
+     the first implementation phase (no dependence on overload residual
+     machinery)
+   - overload-specific tests should be added behind the overload phase gate so
+     generic-first landing still validates the shared invariant contract

@@ -12,6 +12,9 @@ Phase-gating note:
 - several examples below describe target behavior for residual machinery that is
   intentionally not fully implemented on trunk yet; these remain design/paper
   examples until corresponding phases land.
+- for generic-first implementation, invariant/contract tests should use generic
+  examples (primarily section 2 generic cases) rather than overload-dependent
+  examples, so first-phase tests actually exercise landed behavior
 
 ## 0) Trunk-Correct Baselines (pre-residual implementation)
 
@@ -1144,8 +1147,9 @@ r = use_paramspec(f)
 ```
 
 Target coverage:
-- codifies provisional ParamSpec fallback rule (first declared overload branch)
-  when the callable-shape fallback path is entered.
+- codifies provisional ParamSpec fallback rule (first surviving overload branch
+  after deterministic pruning/traversal) when the callable-shape fallback path
+  is entered.
 - this is a callable-shape fallback policy and is distinct from per-var
   multi-candidate residual arbitration (`fallback_for_residuals`).
 
