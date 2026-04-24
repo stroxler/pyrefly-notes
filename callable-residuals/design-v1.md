@@ -313,15 +313,24 @@ Normative requirements:
 
 ## Class type parameter residual preservation
 When overloaded (or generic) callables flow through class type parameters:
-- `generalize_class_targs` must not revert targ vars that carry overload
-  residuals. The revert condition must check both `bounds.is_empty()` and
-  `overload_residuals.is_empty()` before reverting a targ to
-  `Type::Quantified(param)`.
-- When overload residuals are present but bounds are empty, the var must remain
-  as `Type::Var(v)` so that `finish_quantified` can materialize residuals via
-  the normal overload residual path.
+- `generalize_class_targs` must not revert targ vars that carry residuals
+  (generic or overload). The revert condition must check `bounds.is_empty()`,
+  `residuals.is_empty()`, and `overload_residuals.is_empty()` before reverting
+  a targ to `Type::Quantified(param)`.
+- When residuals are present but bounds are empty, the var must remain as
+  `Type::Var(v)` so that `finish_quantified` can materialize residuals via the
+  normal residual path.
 - `finish_class_targs` skips vars that are no longer `Type::Quantified`,
   allowing the residual-materialized answer to be read at field-access time.
+- `finish_function_return` must skip callable-residual finalization for
+  `ClassType` returns. Materializing residuals at this boundary would turn a
+  single class instance into a union of instantiations too early; residuals
+  must survive to class-field lookup and method binding.
+- When a `BoundMethod` carries overload callable residuals in its `obj` type,
+  `self` must be bound early (before call-target stripping) so the overloaded
+  targs are substituted into the remaining method params after `self` is
+  consumed. Without early binding, the overloaded types in the class tparams
+  would conflict with `self` matching during argument analysis.
 
 ## Deterministic quantified merge policy
 Deterministic merge behavior follows semantic type/restriction comparison with
@@ -380,5 +389,3 @@ parameter-callable remains follow-up work.
 3. Performance work beyond correctness-first subset-cache bypass.
 4. Extend argument-side-sensitive residual behavior beyond the current
    `Got`-only hook baseline.
-5. Overload dispatch through class `__call__` when class tparams carry
-   overloaded types.
