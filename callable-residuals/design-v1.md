@@ -1,21 +1,17 @@
 # Callable Residual Design (v1)
 
 ## Status
-This document is the normative v1 design for callable residual behavior.
-
-It supersedes v0 details for generic residual implementation strategy,
-especially around residual visibility, leak control, marker scope/timing,
-and subset-cache interaction.
+This document is the normative design for callable residual behavior.
 
 ## Purpose
 Callable residuals preserve higher-order callable correlations long enough to
 produce coherent substituted output types for generic and overload callables.
 
-The v1 shift is architectural: correctness is enforced at read boundaries via
-variable-gated residual visibility, not by broad call-end scrub passes.
+Correctness is enforced at read boundaries via variable-gated residual
+visibility, not by broad call-end scrub passes.
 
 ## Core model
-v1 keeps the v0 two-layer model:
+The design uses a two-layer model:
 1. Potential residual metadata in solver variable state (residual candidates on
    `Variable::Quantified`).
 2. Materialized residual type artifacts (`Type::CallableResidual(...)`) produced
@@ -25,7 +21,7 @@ v1 keeps the v0 two-layer model:
    `Variable::ResidualAnswer.target_vars` during finishing so expand-time
    sanitization has the right query-var gate.
 
-v1 changes visibility and leak policy:
+Visibility and leak policy:
 1. Residual observability is gated by the queried variable identity.
 2. Flattening happens at explicit boundaries.
 3. Broad frontier sanitization is not a correctness mechanism.
@@ -33,22 +29,20 @@ v1 changes visibility and leak policy:
    (in `Type::CallableResidual`), because not all flattening happens in
    `expand_var` where solver state is available.
 
-## v1 deltas from v0
-
-### 1) Variable-read-gated residual visibility replaces sanitization-first safety
-Use a dedicated solved-variable state for residual answers:
+## Variable-read-gated residual visibility
+A dedicated solved-variable state carries residual answers:
 - `Variable::ResidualAnswer { target_vars: SmallSet<Var>, ty: Type::CallableResidual(...) }`
 - `target_vars` must be threaded from residual capture (quantified residual
-  candidates) into
-  `ResidualAnswer` materialization. This is mandatory because expand-time
-  visibility checks run from solved answers, not from subset-check state.
+  candidates) into `ResidualAnswer` materialization. This is mandatory because
+  expand-time visibility checks run from solved answers, not from subset-check
+  state.
 - Generic residual metadata stores the source `Quantified` on the residual
   artifact (`CallableResidualKind::Generic { quantified }`). Fallback for
   non-target reads is derived as `quantified.as_gradual_type()`, and
   substitution-finalization re-promotion also uses this same `Quantified`.
 
 Variable read behavior (for all solver var-read paths, not only `expand_var`):
-- Read of root `Answer(t)` behaves as today.
+- Read of root `Answer(t)` behaves normally.
 - Read of root `ResidualAnswer { target_vars, ty }`:
   - if `query_var in target_vars`, expose residual payload `ty`.
   - otherwise expose flattened fallback.
@@ -67,21 +61,19 @@ Merge behavior:
   candidates and let finishing decline residual materialization (falls back to
   normal quantified defaulting/gradualization).
 
-### 2) Prototype structure is retained; leak strategy is replaced
-Retain working creation/materialization/finalization structure from the generic
-prototype stack:
-- residual candidates are captured during subset solving,
-- materialization happens in `finish_quantified`,
-- transform/elimination happens in substitution finalization.
+## Residual creation and materialization structure
+- Residual candidates are captured during subset solving.
+- Materialization happens in `finish_quantified`.
+- Transform/elimination happens in substitution finalization.
 
-Only leak-control strategy changes: sanitize-first -> gated visibility.
+Leak control uses gated visibility, not broad sanitization passes.
 
-### 3) Prototype ambiguities are made normative
-v1 makes the following mandatory:
+## Normative requirements
+The following are mandatory:
 - argument-side-aware residual capture in recursive subset flows,
 - write-scope and timing rules for residual markers,
 - deterministic quantified merge semantics matching implementation,
-- subset-cache bypass for residual-side-effectful comparisons.
+- subset-cache bypass for residual-side-effectful comparisons,
 - constructor-callable normalization that preserves scoped generics.
 
 ## Residual elimination boundaries
@@ -102,20 +94,17 @@ v1 makes the following mandatory:
 - Deferred residuals that survive in class `TArgs` must be finalized/eliminated
   at class-field substitution boundaries (after substitution + var expansion).
 
-No other ad hoc leak-scrub mechanism is semantic in v1.
+No other ad hoc leak-scrub mechanism is semantic.
 
-## Normative rules
-
-### Call context and argument side
+## Call context and argument side
 Residual-enabled call solving carries:
 - argument side for current recursive subset frame. The state is tri-valued:
   `Got`, `Want`, or `NotAnalyzingACall` (for generic `is_subset_eq` uses that
   are not part of callable subtyping),
 - a witness-specific relevance context for each residual-producing comparison
-  site (`Forall` now, `Overload` later), keyed by
-  `(call_site_id, witness_id)`.
+  site (`Forall` or `Overload`), keyed by `(call_site_id, witness_id)`.
 
-Argument-side initialization and recursion rules in the current implementation:
+Argument-side initialization and recursion rules:
 - call argument-vs-parameter subset entry seeds side according to top-level call
   direction (`Got` for argument side),
 - parameter recursion flips side and return recursion preserves side,
@@ -129,16 +118,16 @@ expanded.
 Each witness relevance context contains:
 - `origin_vars`: fresh vars introduced by that witness instantiation,
 - `relevant_target_vars`: target vars captured at residual creation time,
-- `deferred_vars`: value-side deferred vars created by that same witness.
+- `deferred_vars`: value-side deferred vars created by that same witness,
 - witness identity fields (`call_site_id`, `witness_id`) that tie captures,
   materialization, and merge checks to the same producing comparison site.
 
 Residual creation must consult argument side; fixed `(got, want)` assumptions are
 invalid.
 
-### Residual marker scope
+## Residual marker scope
 Residual marker writes are allowed only for:
-- vars in the current witness `origin_vars` or `deferred_vars`.
+- vars in the current witness `origin_vars` or `deferred_vars`,
 - and only when residual hooks are enabled for the current argument side
   (currently `Got` only).
 
@@ -146,7 +135,7 @@ Residual visibility targets must be recorded only from that witness
 `relevant_target_vars`, and they must be attached directly to the created
 residual answer.
 
-Target capture policy in v1:
+Target capture policy:
 - generic residuals: use the full set of call-scoped vars that appear in the
   matched callable pattern for that witness,
 - overload residuals: use witness/pattern-derived call-scoped vars captured for
@@ -157,14 +146,14 @@ out-of-scope and must not be captured as residual targets.
 
 Write-time scope checks are mandatory.
 
-### Residual marker timing
+## Residual marker timing
 Marker writes must be success-scoped:
 - write post-success, or
 - write under rollback/snapshot discipline.
 
 Unconditional pre-success commits without rollback are forbidden.
 
-### Generic residual materialization gate
+## Generic residual materialization gate
 Generic residual materialization remains narrow:
 - var unresolved after normal bounds solving,
 - exactly one generic residual candidate,
@@ -183,30 +172,36 @@ Otherwise use normal quantified defaulting/fallback behavior.
 Required-concrete non-callable positions use quantified default policy, not
 overload branch fallback policy.
 
-### Overload residual capture/materialization requirements
+## Overload residual capture/materialization requirements
 - Capture is argument-side-aware and symmetric across subset entry direction.
 - Both directions share the same replay/error-gated persistence policy.
 - With active residual context, `got=Overload, want=Callable` must not use
-  existential early-commit semantics.
+  existential early-commit semantics. Concretely: restore the pre-probe
+  snapshot after all branch probing, so vars stay unsolved and residuals take
+  precedence over first-branch bounds.
 - If overload-vs-callable entry has no active witness context, synthesize one
-  from the callable pattern vars before branch probing so capture/target policy
-  is live in ordinary call checks.
+  from eligible quantified vars filtered by `ArgumentSide != NotAnalyzingACall`
+  before branch probing so capture/target policy is live in ordinary call
+  checks.
 - Candidate payload must preserve per-var branch materialization data.
   Recommended representation:
   - per witness, keep branch captures such as
-    `Vec<{ branch_index, values: SmallMap<Var, Type> }>`
-    where `values` maps residual-eligible vars to that branch's projected
-    solved types.
+    `Vec<{ branch_index, values: SmallMap<Var, Variable> }>`
+    where `values` maps residual-eligible vars to that branch's captured
+    solver state.
   - optional slot/provenance metadata may be stored if needed for diagnostics
     or pruning explanations, but it is not the semantic core.
   - branch values may themselves contain generic residuals; capture must
     preserve that structure and must not flatten it.
 - Ambiguity is preserved through `finish_quantified`; resolution is deferred to
   substitution finalization.
-- Materialization is callable-level and branch-coherent, not slot-local.
-- Branch pruning uses compatibility/subtyping checks, not structural `Type`
-  equality. This is part of full project correctness and can be sequenced after
-  initial end-to-end overload reconstruction.
+- Materialization is callable-level and branch-coherent: each overload residual
+  identity is reconstructed at callable boundaries by substituting per-branch
+  payloads into the enclosing type, then recursively finalizing each branch
+  result (so branch-local generic residuals are re-promoted to `Forall` when
+  appropriate).
+- Branch pruning uses compatibility/subtyping checks against solved bounds, not
+  structural `Type` equality. See "Overload pruning architecture" section.
 - If viable branches become zero:
   - record delayed incompatibility,
   - dedupe by `(call_site_id, witness_id)`,
@@ -216,26 +211,19 @@ overload branch fallback policy.
 Overload limitation retained for v1 baseline:
 - argument-selected ParamSpec overload narrowing is deferred.
 
-### Overload staged responsibilities
+## Overload staged responsibilities
 Overload residual logic is intentionally staged. Each stage has a distinct
 payload shape and responsibility.
 
-Sequencing note:
-- It is valid to ship an MVP that wires capture -> finishing -> finalization
-  before pruning is enabled, as long as behavior is documented as potentially
-  admitting false negatives.
-- Pruning remains required for full project completion and final diagnostics
-  quality.
-
 1. Capture stage (`Variable` payloads)
 - Input: subset solving state under witness context.
-- Output: branch captures with solve-time payloads, for example
+- Output: branch captures with solve-time payloads,
   `Vec<{ branch_index, values: SmallMap<Var, Variable> }>`
   where `Var` keys are residual-eligible pattern call-scoped vars.
 - Capture uses snapshot/rollback probing and must not force an existential
   branch commit for residual-enabled overload comparisons.
 - If entry lacks an active witness context, capture first synthesizes an
-  overload witness from callable-pattern vars.
+  overload witness from eligible quantified vars.
 - For generic overload branches, captured `Variable` payloads must preserve
   generic structure (including unresolved/residual-capable state) rather than
   flattening to fallback types.
@@ -245,9 +233,6 @@ Sequencing note:
 - Output: branch payloads converted to recursively finished `Type` values.
 - Finishing performs branch-set logic (including pruning/deferred-incompatible
   handling) and recursively finishes each captured value.
-- MVP sequencing may temporarily keep all captured branches here (no pruning)
-  while still performing recursive finishing; this preserves structure but may
-  delay incompatibility detection and allow false negatives.
 - If a generic overload branch remains residualized after finishing, the
   finished branch payload may contain `Type::CallableResidual(...)`; this is
   expected and must be preserved for finalization.
@@ -263,7 +248,33 @@ Sequencing note:
 - For zero-viable branches, apply delayed-incompatibility + quantified-default
   fallback policy from this design.
 
-### Recursive residual finalization
+## Overload pruning architecture
+Branch pruning determines which overload branches remain viable after bounded
+call-scope vars are solved.
+
+Finishing uses a two-pass architecture:
+- Pass 1: solve bounded call-scope vars to concrete types, collecting
+  `BoundedQuantifiedFact` (original bounds + overload residuals) for each.
+- Between passes: compute witness-level branch viability by checking each
+  branch's materialized value against the solved bounds using snapshot-isolated
+  subset probes. For each witness, intersect surviving branch indices across all
+  bounded vars to produce per-witness pruning decisions.
+- Pass 2: finish remaining unsolved `Quantified` vars with pruning decisions
+  available. During overload residual materialization, filter branches by the
+  precomputed decisions.
+
+Subset probes for compatibility must be side-effect-free:
+- full solver var snapshot/restore around each probe,
+- subset cache clone/restore (not truncation),
+- witness state and protocol assumption restore.
+
+Result shapes after pruning:
+- zero survivors: emit delayed incompatibility diagnostic, set var to `Never`,
+- one survivor: collapse to flat type (no residual wrapper),
+- multiple survivors: keep trimmed `CallableResidual::Overload` with surviving
+  branches only.
+
+## Recursive residual finalization
 Finalization must recurse through wrappers and preserve callable-legal
 transforms:
 - `Awaitable[Residual]`, tuples, unions, etc. must be finalized recursively.
@@ -286,7 +297,7 @@ Re-promotion granularity:
 - each occurrence gets fresh quantification,
 - no global/shared quantifier across distinct occurrences.
 
-### Constructor-callable normalization
+## Constructor-callable normalization
 Residual behavior for constructors depends on preserving binder scope when class
 objects are compared as callables.
 
@@ -298,10 +309,21 @@ Normative requirements:
   callable/function types containing bare `Type::Quantified` after stripping
   `self`; these must be wrapped as `Forall` so quantifieds are scoped binders,
   not free vars.
-- TypedDict class objects retain their existing non-constructor path in this
-  design phase.
+- TypedDict class objects retain their existing non-constructor path.
 
-### Deterministic quantified merge policy
+## Class type parameter residual preservation
+When overloaded (or generic) callables flow through class type parameters:
+- `generalize_class_targs` must not revert targ vars that carry overload
+  residuals. The revert condition must check both `bounds.is_empty()` and
+  `overload_residuals.is_empty()` before reverting a targ to
+  `Type::Quantified(param)`.
+- When overload residuals are present but bounds are empty, the var must remain
+  as `Type::Var(v)` so that `finish_quantified` can materialize residuals via
+  the normal overload residual path.
+- `finish_class_targs` skips vars that are no longer `Type::Quantified`,
+  allowing the residual-materialized answer to be read at field-access time.
+
+## Deterministic quantified merge policy
 Deterministic merge behavior follows semantic type/restriction comparison with
 deterministic tie behavior.
 
@@ -314,9 +336,7 @@ Residual-candidate merge behavior for coalesced quantified vars:
 - if incompatible or multiple unresolved identities remain after coalescing, do
   not materialize; fall back to normal quantified defaulting/gradualization.
 
-v0 provenance-priority wording is superseded unless explicitly reintroduced.
-
-### Subset-cache side-effect safety
+## Subset-cache side-effect safety
 For residual-side-effectful comparisons (capture/write hooks enabled):
 - include residual context identity in subset-cache keys:
   - default non-residual context uses the default cache key,
@@ -354,20 +374,11 @@ Zero-viable-overload witness diagnostics:
 Richer wording that contrasts reconstructed argument-callable vs substituted
 parameter-callable remains follow-up work.
 
-## Migration notes
-1. Keep two fallback channels distinct:
-- visibility fallback (non-target residual read) via residual fallback policy,
-- zero-viable-overload fallback via quantified defaulting after delayed
-  incompatibility.
-
-2. Temporary sanitize code may remain as debug instrumentation/backstop during
-migration, but must remain non-semantic.
-
-3. Remove or strictly narrow sanitize once gating behavior and tests are stable.
-
 ## Open follow-up items (not required for v1 baseline)
 1. Argument-selected ParamSpec overload narrowing.
 2. Diagnostic wording improvements for zero-viable-overload witness errors.
 3. Performance work beyond correctness-first subset-cache bypass.
 4. Extend argument-side-sensitive residual behavior beyond the current
    `Got`-only hook baseline.
+5. Overload dispatch through class `__call__` when class tparams carry
+   overloaded types.
