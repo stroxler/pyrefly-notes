@@ -1,207 +1,183 @@
-# Callable Residual v1 Implementation Plan (Draft)
+# Callable Residual v1 Implementation Plan
+
+## Status
+This is the active implementation plan for callable residual v1.
+
+Baseline assumption: generic residual prototype behavior already exists and we
+are hardening semantics to match `design-v1.md`.
 
 ## Scope
-This plan targets v1 deltas relative to the generic-residual prototype ending
-at `be8734e13b35`, with sanitization replaced by variable-gated residual
-visibility.
+In scope:
+1. Preserve working generic residual behavior.
+2. Replace sanitize-first leak control with variable-gated residual visibility.
+3. Close prototype semantic gaps (polarity, marker timing/scope, cache
+   side-effect safety).
+4. Land overload residual work on top of stable generic-v1 foundations.
 
-Primary goals:
-1. Keep working generic residual behavior.
-2. Replace broad call-end sanitization with precise expansion-time gating.
-3. Fix prototype-exposed semantic gaps before layering overload residual work.
+Out of scope for this plan:
+1. Argument-selected ParamSpec overload narrowing.
+2. Broad solver refactors unrelated to residual correctness.
+3. New fallback-policy redesigns beyond v1 decisions.
 
-## Non-goals (this plan)
-- Full overload residual implementation.
-- New fallback policy beyond current v1 baseline.
-- Large solver architecture refactors unrelated to residual correctness.
+## Non-negotiable constraints
+1. Deterministic final types and diagnostics.
+2. No correctness dependence on broad frontier sanitization.
+3. Tests-first discipline for each behavior change phase.
+4. Small bisectable commits that separate plumbing from policy.
 
-## Guiding constraints
-- Deterministic behavior and diagnostics.
-- No reliance on broad frontier scrub for correctness.
-- Minimal policy churn per commit (separate semantics from cleanup).
+## Test-first rule
+For each behavior phase:
+1. Land tests first (use `bug = "..."` when behavior is known-wrong).
+2. Land implementation in follow-up commit(s).
+3. Remove/update `bug` markers only after behavior lands.
 
-## Recommended commit sequence
+Never combine new behavior-changing logic with its first test coverage in one
+commit.
 
-1. Tests first: orientation + scope + marker timing
-- Add passing tests first (use `bug = "..."` where behavior is known-wrong):
-  - value-side `Forall` on `want` via contravariant recursion path
-  - inactive-call-context `Forall` should not create residual candidates
-  - failed subset comparison should not leave residual markers behind
-  - nested-return wrapper regression: `test_paramspec_wrap_generic_return`
-    (`Awaitable[Residual]` must finalize to `Awaitable[T]`, not
-    `Awaitable[Unknown]`)
-- Keep tests small and single-purpose.
+## Phase plan
 
-2. Introduce residual-answer gating in `Variable`
-- Add solved-state form for gated residual visibility:
-  - `ResidualAnswer { target_vars, ty }` (name may vary)
-- Wire display/debug formatting and any exhaustive matches.
+### Phase 0: tests for current known gaps (pre-implementation gate)
+Add/adjust passing tests first:
+1. value-side `Forall` capture under contravariant/polarity-flipped recursion.
+2. inactive call context must not produce residual candidates.
+3. failed subset comparison must not leave marker residue.
+4. nested wrapper finalization regression:
+   `test_paramspec_wrap_generic_return` preserves `Awaitable[T]`.
+5. non-target alias read flattening.
+6. coalesced legitimate targets preserve residual visibility.
 
-3. Tighten materialization eligibility (write boundary)
-- Ensure residual materialization at `finish_quantified` only applies to
-  residual-eligible vars for the active call context.
-- Carry origin/scope metadata in residual markers (or equivalent) and enforce
-  in-scope-origin checks before materialization.
-- Treat write-time eligibility enforcement as mandatory: residual markers must
-  only be written for active residual-eligible scope vars.
+Exit criteria:
+1. Tests are deterministic and single-purpose.
+2. Behavior gaps documented with `bug` markers where necessary.
 
-4. Fix polarity/orientation handling + success-scoped marker timing together
-- Replace one-sided `Type::Forall` interception with polarity-aware trigger
-  behavior under recursive subset calls.
-- Avoid over-broad writes: only record markers for active residual scope vars.
-- Ensure marker writes are either:
-  - post-success, or
-  - protected by snapshot/rollback on failure.
-- Add explicit tests for failed-compare cleanup behavior.
+### Phase 1: representation/plumbing
+Implement mechanical representation support without semantic policy changes:
+1. Add solved variable state:
+   `ResidualAnswer { target_vars, ty }`.
+2. Add/normalize residual metadata storage in bounds (`Bounds.residuals` +
+   required origin/scope metadata).
+3. Update exhaustive `Variable` matches, display/debug paths, serialization
+   guards.
 
-5. Make subset-cache behavior side-effect safe for residual paths
-- Ensure cache use cannot suppress required residual side effects.
-- v1 strategy: bypass `subset_cache` for residual-side-effectful comparisons
-  (frames where residual capture/write hooks are enabled).
-- keep cache behavior unchanged for non-side-effectful comparisons.
-- Add regression test(s) demonstrating:
-  - residual-side-effectful comparisons are not cache-short-circuited, and
-  - non-side-effectful comparisons still benefit from cache behavior.
+Exit criteria:
+1. Tree compiles cleanly.
+2. No behavior claim yet; strictly representation plumbing.
 
-6. Apply gating at expansion/forcing boundaries
-- Update `expand_with_limit` (and any equivalent var-expansion entrypoints) to:
-  - expose residual payload only when queried var is in `target_vars`
-  - otherwise return fallback-flattened form
-- Ensure behavior is consistent across all residual read paths, including:
-  - `expand_with_limit` / var expansion,
-  - force/deep-force paths,
-  - return-type substitution finalization,
-  - class-field substitution finalization,
-  - display/export reads (no user-visible residual leaks).
+### Phase 2: write-side invariants (scope + timing + materialization gate)
+1. Enforce witness-specific write-time eligibility for residual marker writes.
+2. Ensure marker writes are success-scoped (post-success or rollback-safe).
+3. Materialize residuals only for in-scope eligible vars with required candidate
+   shape.
+4. Record residual target sets at creation time and store them on each
+   residual answer:
+   - generic residuals use all call-scoped vars that appear in the matched
+     callable pattern for that witness,
+   - overload residuals use only the exact branch-projection var.
+5. Keep unrelated vars excluded even if they later unify.
+6. Preserve legitimate target-set visibility on UF merges.
+7. Enforce invariant handling for incompatible residual identity merges.
 
-7. De-emphasize/remove broad sanitize path
-- Convert `sanitize_call_end_residuals` to debug backstop or remove it.
-- Ensure release correctness does not depend on sanitize execution.
+Exit criteria:
+1. Out-of-scope writes/materialization blocked.
+2. Failed comparisons do not leak markers.
+3. Legitimate target coalescing keeps all targets visible.
 
-8. Doc sync and cleanup
-- Update `design-v1.md` and `design-v0.md` status notes to match landed code.
-- Keep any temporary compatibility notes explicit (pending overload phase).
+### Phase 3: polarity/orientation correctness + deferred finishing
+1. Make residual triggers polarity-aware in recursive subset checks.
+2. Ensure value-side `Forall` vars participating in residual solving are
+   deferred-finish and call-local.
+3. Validate marker propagation respects witness relevance sets rather than
+   generic active scope membership.
 
-## Pitfalls to avoid (from prototype stack)
+Exit criteria:
+1. Both subset-entry directions pass symmetry tests for generic paths.
+2. Contravariant/polarity-flip tests pass.
 
-1. Broad-first marker propagation
-- Avoid writing markers from `collect_maybe_placeholder_vars()` without call
-  scope filtering; this caused follow-up unwind commits previously.
+### Phase 4: subset-cache side-effect safety
+1. Detect residual-side-effectful frames.
+2. Bypass subset-cache lookup and write for those frames.
+3. Keep cache behavior unchanged for non-side-effectful frames.
 
-2. Manual push/pop scope lifecycle
-- Introduce scope guards (RAII-style) in the same commit as scope stacks.
+Exit criteria:
+1. Residual side effects cannot be skipped by cache hits.
+2. Non-residual paths retain cache behavior/perf characteristics.
 
-3. Mixed policy + plumbing mega-commits
-- Separate:
-  - residual representation/plumbing,
-  - marker/finish semantics,
-  - fallback policy tweaks.
+### Phase 5: read-side gating and finalization boundaries
+1. Apply target-var gating in var expansion (`expand_with_limit` and equivalent
+   read paths) using the original root query var.
+2. Ensure read-side visibility checks consult the producing witness target set;
+   unrelated vars, including later-unified vars, flatten.
+3. Ensure nested solved-var reads reached through `Answer(t)` reuse the same
+   original query var instead of switching to nested var identity.
+4. Ensure forcing/finalization/read/export paths use same visibility rule.
+5. Keep recursive callable-legal finalization through wrappers.
+6. Ensure no user-visible `CallableResidual` leaks at reveal/export boundaries.
 
-4. “Deterministic” partial fixes
-- Land semantic comparator tie-break behavior in one complete change, not split
-  across follow-up fixes.
+Exit criteria:
+1. Non-target aliases flatten at read boundaries.
+2. Callable re-promotion is per occurrence.
+3. Reveal/export outputs are residual-free.
+
+### Phase 6: sanitize de-emphasis/removal
+1. Convert sanitize path to debug-only backstop or remove it.
+2. Verify release correctness is independent from sanitize execution.
+
+Exit criteria:
+1. Test suite passes with sanitize disabled/non-semantic.
+
+### Phase 7: overload residual layer (post generic-v1 stabilization)
+1. Add tests-first for direction symmetry, ambiguity preservation, zero-branch
+   delayed diagnostics, and witness-level dedupe.
+2. Implement directional capture symmetry and replay/error-gated persistence.
+3. Land payload shape that preserves per-var branch data for callable-level
+   materialization.
+4. Preserve grouped ambiguity through `finish_quantified`.
+5. Implement callable-level branch-coherent expansion/finalization.
+6. Conservative branch pruning using compatibility checks.
+7. Delayed-diagnostic plumbing keyed by `(call_site_id, witness_id)`.
+
+Exit criteria:
+1. Directional symmetry tests pass both directions.
+2. Ambiguity survives finish and resolves only at callable finalization.
+3. Zero-branch path emits one delayed witness diagnostic and applies quantified
+   default fallback.
+
+## Implementation map (likely touch points)
+1. Solver variable representation and UF merge logic.
+2. Bounds metadata write/read paths.
+3. Subset recursion/capture hooks and call context plumbing.
+4. Quantified finishing (`finish_quantified`) and deferred-finish queues.
+5. Expansion/force/finalization paths (return + class-field + export).
+6. Subset-cache access wrappers.
+7. Callable residual test suites (generic + overload).
+
+## Anti-churn guardrails
+1. Do not land slot-local overload materialization as an intermediate step.
+2. Do not land one-direction overload capture fixes.
+3. Do not split payload definition from first correct consumer when payload
+   shape is insufficient.
+4. Do not mix deterministic-ordering tweaks with semantic policy changes unless
+   required for correctness of the same phase.
 
 ## Verification checklist
-- All callable-residual tests pass.
-- Added polarity regression passes (value-side `Forall` on both sides).
-- Added failed-comparison marker-rollback test passes.
-- Added cache-side-effect safety regression(s) for residual-producing comparisons.
-- `test_paramspec_wrap_generic_return` stays passing with expected
-  `[X](x: X) -> Awaitable[X]` result.
-- No user-visible `CallableResidual` leak at reveal/export boundaries.
-- No correctness dependence on sanitize frontier sweep.
+1. Callable-residual tests pass.
+2. Polarity regression tests pass.
+3. Failed-compare marker-rollback tests pass.
+4. Cache side-effect safety regressions pass.
+5. Cross-var regression passes: unrelated vars (for example `S`) that unify
+   later with relevant residual vars (for example `T`) do not gain residual
+   visibility and instead flatten/fallback.
+6. `test_paramspec_wrap_generic_return` preserves
+   `[X](x: X) -> Awaitable[X]`.
+7. No user-visible `CallableResidual` leaks.
+8. No correctness dependence on sanitize frontier sweep.
+9. Formatting and linting pass with no new lint issues.
 
-## Suggested landing strategy
-- Land steps 1-3 first as a coherence block (tests + write-side invariants).
-- Land steps 4-6 next (polarity/timing + cache safety + read-side gating).
-- Land step 7 only after tests demonstrate sanitize independence.
-- Keep each commit bisectable with focused tests.
+## Suggested landing slices
+1. Slice A: Phase 0 + Phase 1.
+2. Slice B: Phase 2 + Phase 3.
+3. Slice C: Phase 4 + Phase 5.
+4. Slice D: Phase 6.
+5. Slice E: Phase 7.
 
-## Overload phase (next, after generic v1 stability)
-
-### Scope for overload phase
-- Add overload residual capture, persistence, and callable-level materialization
-  on top of the generic-v1 baseline.
-- Keep ParamSpec argument-selected narrowing as deferred follow-up.
-
-### Required implementation ordering
-1. Tests-first coverage for directional symmetry and ambiguity preservation
-- Add paired tests for both capture directions (`pattern <: overload` and
-  `overload <: pattern`) under equivalent callable-pattern scenarios.
-- Add tests that require ambiguity to survive `finish_quantified` and only
-  resolve at callable finalization.
-- Add tests for zero-viable-branch outcome asserting delayed incompatibility
-  diagnostic plus quantified-default fallback behavior.
-- Add tests that assert delayed diagnostic anchoring/dedup policy:
-  - diagnostic range is the full callable-argument expression range,
-  - multiple residual-var failures for one witness emit one diagnostic.
-
-2. Capture symmetry and success gating
-- Implement capture in both subset directions with the same replay/error-gated
-  persistence semantics.
-- Do not land a path where one direction records residuals directly while the
-  mirrored direction requires replay validation.
-- Explicitly block existential early-commit behavior in
-  `got=Overload, want=Callable` when residual context is active.
-
-3. Candidate payload shape before materialization work
-- Land payload shape that includes per-var branch value data needed for
-  callable-level expansion.
-- Do not land branch-projection-only payloads that require follow-up payload
-  redesign to recover per-var materialization semantics.
-
-4. Keep grouped ambiguity through `finish_quantified`
-- Preserve grouped overload candidates in deterministic order.
-- Do not introduce single-winner arbitration in `finish_quantified`, even if
-  deterministic; defer branch choice to callable-level finalization.
-
-5. Callable-level branch-coherent expansion
-- Implement callable-level expansion first, then wire slot reads into it.
-- Do not land slot-local “project one residual slot at a time” finalization as
-  an intermediate behavior.
-- Ensure recursive finalization of projected branch values keeps callable-slot
-  context; do not force `NonCallable` on intermediate projected values.
-
-6. Conservative pruning and compatibility semantics
-- Prune branches only on concrete incompatibility proven by subtype/consistency
-  checks.
-- Do not use structural `Type` equality as pruning criterion.
-- Keep deterministic branch ordering independent from pruning decisions.
-
-7. Delayed-diagnostic plumbing for zero-branch witnesses
-- Implement witness-level delayed incompatibility recording keyed by
-  `(call_site_id, witness_id)` so residual-var-local failures dedupe correctly.
-- `witness_id` must be deterministic within a call solve (for example, capture
-  insertion order in deterministic traversal).
-- Use full argument expression range as the v1 diagnostic anchor.
-- Keep message emission deterministic by preserving deterministic witness order.
-- Apply quantified-default fallback to remaining related residual vars after
-  recording the delayed diagnostic.
-
-### Overload-specific anti-churn guardrails
-- Avoid introducing deterministic-but-wrong intermediate behavior that must be
-  undone later (single-candidate arbitration, slot-local collapse).
-- Avoid landing capture persistence without replay/error gating.
-- Avoid single-direction fixes: capture symmetry must include
-  `got=Overload, want=Callable` from the start.
-- Avoid splitting payload-definition and first consumer across commits when the
-  first consumer cannot be correct with the old payload.
-- Treat direction symmetry and zero-branch diagnostics as same-commit invariants,
-  not follow-up polish.
-
-### Overload verification additions
-- Directional symmetry tests pass for both subset entry directions.
-- Ambiguity survives finish and is resolved only at callable finalization.
-- Zero-branch path emits delayed incompatibility diagnostic and applies
-  quantified-default fallback to related residual vars.
-- Zero-branch diagnostic is anchored to full argument range and deduped
-  witness-wide (not one error per residual var).
-- Branch pruning tests confirm:
-  - concrete sibling constraints can prune incompatible branches,
-  - unresolved-compatible branches are retained,
-  - compatible non-identical types are not pruned by structural mismatch.
-- Nested projected values inside wrappers preserve callable-slot semantics during
-  branch expansion/finalization.
-- Target-set residual visibility semantics are covered:
-  - coalesced legitimate targets retain residual visibility,
-  - non-target aliases flatten to fallback.
+Each slice should remain bisectable with direct tests for the changed invariant.

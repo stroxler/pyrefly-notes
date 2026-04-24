@@ -57,6 +57,8 @@ reveal_type(maybe_v)
 Expected direction:
 - callable occurrence can preserve/promote polymorphic callable behavior
 - non-callable occurrence uses normal default/fallback behavior
+- concrete expected shape in current policy: non-callable side typically
+  degrades to `Optional[Unknown]` (or equivalent gradual name).
 
 ### 1.4 Required-concrete non-callable position
 Intended test name: `test_v1_required_concrete_noncallable_position`
@@ -185,6 +187,8 @@ reveal_type(f2)
 Expected direction:
 - if legitimate call-scoped targets coalesce under UF, both target vars keep residual visibility
 - no asymmetric flattening between legitimate targets
+- if this result contains multiple callable occurrences, re-promotion is
+  per-occurrence (independent `Forall` wrappers), not one shared quantifier.
 
 ## 2) Overload Implementation
 
