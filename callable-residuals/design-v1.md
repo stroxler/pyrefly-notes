@@ -72,9 +72,29 @@ Leak control uses gated visibility, not broad sanitization passes.
 The following are mandatory:
 - argument-side-aware residual capture in recursive subset flows,
 - write-scope and timing rules for residual markers,
+- snapshot discipline for speculative checks,
 - deterministic quantified merge semantics matching implementation,
 - subset-cache bypass for residual-side-effectful comparisons,
 - constructor-callable normalization that preserves scoped generics.
+
+## Snapshot discipline
+Snapshotting is used for speculative work (for example, residual capture probes
+and overload branch-pruning probes) where we must run subset logic without
+committing solver mutations.
+
+Snapshot/rollback rules are mandatory:
+- snapshots must be local to the speculative operation, not global over all
+  solver variables,
+- rollback must restore snapshotted state only; it must never delete variables
+  from solver storage,
+- cache/witness/protocol side-state touched by the speculative operation must be
+  restored together with variable state.
+
+Rationale:
+- correctness: speculative side effects must not leak into the real solve path,
+- invariants: solver vars are monotonic once created,
+- performance: global snapshot scans and deletion-based rollback are too
+  expensive on hot paths.
 
 ## Residual elimination boundaries
 
@@ -115,6 +135,13 @@ deliberate defensive baseline to avoid accidental side effects in inverted or
 non-call contexts while argument-side-sensitive behavior is still being
 expanded.
 
+Protocol member comparison scoping:
+- Only `__call__` protocol member checks run with residual capture enabled.
+- All other protocol member comparisons (e.g. `__iter__`, `__len__`) use
+  `CallContext::outside()` to suppress residual capture. Without this,
+  overload branches from protocol methods like `str.__iter__` would produce
+  spurious residual alternatives in unrelated flows.
+
 Each witness relevance context contains:
 - `origin_vars`: fresh vars introduced by that witness instantiation,
 - `relevant_target_vars`: target vars captured at residual creation time,
@@ -149,7 +176,7 @@ Write-time scope checks are mandatory.
 ## Residual marker timing
 Marker writes must be success-scoped:
 - write post-success, or
-- write under rollback/snapshot discipline.
+- write under rollback/snapshot discipline (see "Snapshot discipline").
 
 Unconditional pre-success commits without rollback are forbidden.
 
@@ -177,8 +204,8 @@ overload branch fallback policy.
 - Both directions share the same replay/error-gated persistence policy.
 - With active residual context, `got=Overload, want=Callable` must not use
   existential early-commit semantics. Concretely: restore the pre-probe
-  snapshot after all branch probing, so vars stay unsolved and residuals take
-  precedence over first-branch bounds.
+  snapshot scope after all branch probing (see "Snapshot discipline"), so vars
+  stay unsolved and residuals take precedence over first-branch bounds.
 - If overload-vs-callable entry has no active witness context, synthesize one
   from eligible quantified vars filtered by `ArgumentSide != NotAnalyzingACall`
   before branch probing so capture/target policy is live in ordinary call
@@ -220,8 +247,9 @@ payload shape and responsibility.
 - Output: branch captures with solve-time payloads,
   `Vec<{ branch_index, values: SmallMap<Var, Variable> }>`
   where `Var` keys are residual-eligible pattern call-scoped vars.
-- Capture uses snapshot/rollback probing and must not force an existential
-  branch commit for residual-enabled overload comparisons.
+- Capture uses snapshot/rollback probing (see "Snapshot discipline") and must
+  not force an existential branch commit for residual-enabled overload
+  comparisons.
 - If entry lacks an active witness context, capture first synthesizes an
   overload witness from eligible quantified vars.
 - For generic overload branches, captured `Variable` payloads must preserve
@@ -264,9 +292,10 @@ Finishing uses a two-pass architecture:
   precomputed decisions.
 
 Subset probes for compatibility must be side-effect-free:
-- full solver var snapshot/restore around each probe,
+- local var snapshot/restore around each probe (probe-relevant vars only),
 - subset cache clone/restore (not truncation),
-- witness state and protocol assumption restore.
+- witness state and protocol assumption restore,
+- no variable deletion during rollback.
 
 Result shapes after pruning:
 - zero survivors: emit delayed incompatibility diagnostic, set var to `Never`,
