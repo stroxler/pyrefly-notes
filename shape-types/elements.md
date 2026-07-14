@@ -139,7 +139,7 @@ There's an open question of whether we should eventually support inference so
 that the `: IntVar` can be omitted. This is addressed later in a section on
 potential enhancements.
 
-### A clearer long-term option for a PEP specifiying type-variable arithmetic
+### A clearer long-term path for a PEP specifying type-variable arithmetic
 
 A new type variable kind is probably what we would need in a PEP: if we want to
 add first-class support for symbolic arithmetic shapes to Python, we would need
