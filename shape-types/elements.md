@@ -102,10 +102,10 @@ permitted by the typing specification except in `Callable` and there's no overla
 
 ### Performance and clarity in symbolic integer type argument rules
 
-I noted two weeks ago week that the use of bare `N` in a class like
+We noted two weeks ago week that the use of bare `N` in a class like
 ```python
 class SquareMaker[N]:
-    def __init__(self, n: Dim[N]):
+    def __init__(self, n: Dim[N])We
         self.n = n
     def make_square(self) -> Tensor[N, N]:
         return torch.zeros((self.n, self.n))
@@ -135,19 +135,9 @@ and the `IntVar` kind on `N` would both
   accept in a type argument if and only if that type parameter is an `IntVar`
   (just as with the list shorthand syntax for `IntTuple`).
 
-Sam Goldman noted, in my post last week, that we could probably solve the perf issue
-by using the variance inference algorithm, since it has the same sort of behavior
-of depending on the fanout of the typed surface area of `SquareMaker` and all classes
-that appear in its class fields.
-
-This might have been a great idea if we had decided that introducing a dedicated
-kind is too much syntactic overhead, but I'm inclined to think the explicit
-`IntVar` marker is worth it: it follows the "explicit is better than implicit"
-Zen of Python. And I'll note that although `IntVar` is *written* like an upper
-bound, it really behaves as a distinct kind of type variable — much like
-`TypeVarTuple` or `ParamSpec` — rather than an ordinary bound. As we saw with
-`SquareMaker[str]`, the incoming type has to be a valid symbolic integer or it's a
-type error.
+There's an open question of whether we should eventually support inference so
+that the `: IntVar` can be omitted. This is addressed later in a section on
+potential enhancements.
 
 ### A clearer long-term option for a PEP specifiying type-variable arithmetic
 
