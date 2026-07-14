@@ -102,7 +102,7 @@ permitted by the typing specification except in `Callable` and there's no overla
 
 ### Performance and clarity in symbolic integer type argument rules
 
-I posted last week that the use of bare `N` in a class like
+I noted two weeks ago week that the use of bare `N` in a class like
 ```python
 class SquareMaker[N]:
     def __init__(self, n: Dim[N]):
