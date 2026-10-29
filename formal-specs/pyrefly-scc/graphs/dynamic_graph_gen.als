@@ -1,9 +1,8 @@
-// Dynamic graph schedule generator (scaffold)
+// Dynamic graph schedule generator.
 //
-// This Alloy model is intentionally minimal. It documents the target shape
-// and the two simulation assumptions used for SCC-discovery-complete cases.
-//
-// These assumptions are stronger than real-world behavior by design.
+// Graph-input conditions admit late component merges while requiring initial
+// visibility for nodes that have no driver. The behavior model must consume
+// schedule coverage before publishing; these facts do not model Python.
 
 sig Node {}
 
@@ -60,13 +59,23 @@ fact StepIndexing {
   all i: Int | (i >= 0 and i < Params.step_count) implies one s: Step | s.idx = i
 }
 
-// Simulation assumption: cycle participants in the initial dynamic graph
-// exactly match cycle participants in the full graph.
+// Simulation input: the initial graph exposes all cyclic participants. It
+// may still split a full SCC into smaller cycles, allowing late merge cases.
+// This equality alone is not full-component discovery.
 fact InitialCycleNodesMatchFull {
   InitialDynamicCycleNodes = FullCycleNodes
 }
 
+// Noncyclic nodes have no iterative driver and are computed only once. Their
+// first step must expose every full dependency; later coverage cannot help.
+fact InitialNoncyclicDependenciesAreFull {
+  all n: Node - FullCycleNodes |
+    all s: InitialStep | n.(s.edges) = n.(FullGraph.edges)
+}
+
 // Coverage: every true edge must appear in at least one dynamic step.
+// The behavior model supplies a full period of member drives after restart;
+// coverage alone does not imply that an arbitrary solver consumes the period.
 fact EveryFullEdgeAppearsInSomeStep {
   all src, dst: Node |
     src->dst in FullGraph.edges implies some s: Step | src->dst in s.edges

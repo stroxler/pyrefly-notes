@@ -43,6 +43,8 @@ def tla_set(items: list[str]) -> str:
 
 def tla_graph_func(mapping: dict[str, set[str]], indent: str = "") -> str:
     keys = sorted(mapping.keys())
+    if len(keys) == 1:
+        return f"{indent}[n \\in Nodes |-> {tla_set(sorted(mapping[keys[0]]))}]"
     lines = [f"{indent}[n \\in Nodes |->"]
     for i, k in enumerate(keys):
         dst = tla_set(sorted(mapping[k]))
