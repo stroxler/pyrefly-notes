@@ -21,6 +21,52 @@ edit preserves directory structure, while create/delete change it. An edit can
 still change imports, exports, and downstream diagnostics. No runtime speedup or
 implementation-correctness proof follows from checking this model.
 
+## Distinctions to preserve as the model grows
+
+The editable-install work reports three recurring gaps. Treat these as evidence
+for domain questions, not as proof of existing code behavior or new subsystems:
+
+- **Import exposure versus ownership:** import visibility, source provenance,
+  checking eligibility, and refactor permission are distinct contextual relations.
+  An import root or editable ancestor alone cannot stand in for all four.
+- **Spelling versus observed identity:** aliases can identify one directory, and
+  one pathname can later identify another. Preserve the identity basis of
+  observed ownership evidence; do not silently transfer it to a replacement.
+  Explicit path-based user intent may follow different, declared rules. Unknown
+  identity stays unknown; failure to observe equality is not observed inequality.
+- **Configuration versus observations:** cached queries, live inspections, and
+  resolved snapshots may describe different moments. Retain enough provenance
+  to decide when they can be combined rather than treating them as one current fact.
+
+Future interaction cases should include an installed dependency below editable
+source, alias retargeting, directory replacement at an unchanged pathname with
+cached positive evidence, and a configuration change between observations. The
+flat-file model supplies the edit/recreation distinction, not these ownership or
+observation semantics yet.
+
+## Candidate organizing principle
+
+**Normalize observations → derive separate decisions → invalidate dependencies.**
+
+Observations state what is known, its source, and when/context it was obtained.
+Interpret them under declared import semantics and policy precedence to derive
+import visibility, checking eligibility, and refactor ownership separately.
+Dependencies connect each decision to its supporting observations and policy,
+including relevant observed absences. Changes invalidate affected decisions,
+not every result or several feature-specific repair paths.
+
+At the boundary, a symlink retarget can replace an observed binding and an
+environment rebuild can delete/create relevant observations. A file edit remains
+identity-preserving. Explicit dependencies, rather than rebuilding everything,
+should preserve the fast paths. These are candidate design choices to investigate,
+not semantics already supplied by the flat-file model.
+
+The abstraction test is whether representative regressions can share the same
+small vocabulary without scenario-specific actions or ownership exceptions.
+Counterexamples should prompt us to examine missing invariants, dependencies, or
+the state representation itself—not formalize another repair to existing code.
+New domain concepts can be added in stages; they need a purpose beyond one bug.
+
 ## Grow the same world
 
 1. **Flat files:** create/edit/delete, identity, contents, and local effects.
