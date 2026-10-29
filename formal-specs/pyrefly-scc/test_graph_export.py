@@ -38,9 +38,8 @@ class GraphExportTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return output
 
-    @unittest.expectedFailure
     def test_single_node_function_is_total(self):
-        # The historical exporter emits an IF without ELSE for this legal input.
+        # A single-node input is represented by a constant function.
         with tempfile.TemporaryDirectory() as directory:
             output = self.export(Path(directory), 1)
             self.assertNotIn('IF n = "n0"', output.read_text())
@@ -59,7 +58,6 @@ class GraphExportTests(unittest.TestCase):
     @unittest.skipUnless(
         os.environ.get("TLA2TOOLS_JAR"), "Set TLA2TOOLS_JAR for syntax validation"
     )
-    @unittest.expectedFailure
     def test_single_node_module_parses(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
