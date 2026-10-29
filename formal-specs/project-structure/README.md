@@ -1,65 +1,65 @@
 # Python project structure
 
-**Status:** domain discovery and modeling proposal. No executable formal model has
-been checked yet.
+Start with one small domain model and extend the same world in stages. The
+primary model is a precise system sketch with a rich concept vocabulary, intended
+to make code organization tractable. Checks aid exploration and auditing; proving
+correctness of either the model or Pyrefly is not its main goal.
 
-The goal is to understand the domain, not to encode Pyrefly's current rules.
-Python and packaging references constrain the semantics; Pyrefly, pyright, ty,
-zuban, mypy, and issue reports provide examples and counterexamples. The model may
-motivate substantial implementation refactors.
+## First milestone: flat files
 
-## Design objective
+- [Concept-design sketch](DESIGN.md): purpose, state, actions, and operational
+  principle, following Daniel Jackson's framing.
+- [`flat_files.als`](flat_files.als): one directory with named files and opaque
+  contents. Create allocates an incarnation; edit preserves identity and directory
+  structure; delete retires it. No Pyrefly APIs or caches are modeled.
+- [`flat_files_checks.als`](flat_files_checks.als): structural/content locality,
+  whole-lifetime identity, fresh recreation, and lifecycle witnesses. Every
+  command states its scope and expected SAT/UNSAT outcome.
 
-Consider both the real world and a simple, modular system for handling it.
-Preserve meaningful domain distinctions, but simplify their representation at
-boundaries so the most complex core has fewer concepts and actions to handle.
-Discovery and event adapters can normalize different mechanisms into shared
-inputs and operations. They must preserve relevant context and interactions;
-normalization is not a reason to assume the underlying features are independent.
+On a POSIX host, with Python 3, Java, and an Alloy **6.2.0** CLI named `alloy`:
 
-## Documents
+```sh
+cd formal-specs/project-structure
+python3 run_alloy.py
+python3 -m unittest -v test_run_alloy test_model_mutations
+```
 
-- [Modeling proposal](proposal.md): domain distinctions, observation boundaries,
-  candidate properties, temporal behavior, and a staged Alloy 6 approach.
-- [Open-issue audit](issue-audit.md): motivating scenarios and questions from open
-  Pyrefly reports, with explicit coverage and evidence limits.
+The runner defaults to MiniSat (`--solver sat4j` selects Java-only checking), one
+Java process, a requested 512 MiB heap, and a 180-second timeout. Cleanup on
+failure, timeout, Ctrl-C, or SIGTERM terminates the launcher's POSIX process group,
+including inherited checker children, with at most ten additional seconds for
+reaping. A custom launcher must preserve that group and not override the heap.
+`--output /path/to/new-directory` preserves receipts and witness JSON;
+an existing directory is never overwritten. Missing/incomplete receipts or
+terminal results, unexpected outcomes, checker errors, and timeouts fail
+validation. Mutation regressions exercise both SAT/UNSAT mismatch directions.
 
-## One world, interacting features
+A successful bounded check establishes no counterexample within its stated
+scope—not correctness for all directory sizes, a runtime speedup, or a relation
+to implementation code. Content values are abstract; a same-content write is an
+idle/no-op here. File allocation history is specification-only, and finite scopes
+can exhaust the supply of incarnations. The main checks bound 2 names, 3 file
+incarnations, 2 contents, and at most 6 lasso steps. Allocation history grows, so
+creation occurs only in the finite prefix, not the loop. No fairness or
+eventual-progress property is assumed. The Alloy model can be opened directly on
+other supported hosts; this small runner's process-control contract is POSIX-only.
 
-Specification files may be modular, but scenarios must share one world. Editable
-installs, interpreter and virtual-environment location, symlinks, ordered import
-providers, namespace packages, stubs, configuration, and incremental updates
-interact. Do not assume these are independent problems or validate only isolated
-feature models.
+## Extension order
 
-Start with combined scenarios such as an editable project reached through a
-symlink from an environment outside the workspace, then remove or recreate that
-environment, change the alias target, or introduce a competing package or stub.
-The model should reveal which inputs determine each result and which observations
-are insufficient to determine it.
+1. Flat files and the identity-preserving edit fast path.
+2. Directory hierarchy and sub-config applicability.
+3. Exclusions and virtualenvs, separating checking, import visibility, and
+   automated-refactor eligibility.
+4. Interacting symlinks and editable installations, including changing
+   observations and normalization at boundaries.
 
-Keep semantic module identity, resource identity, distribution provenance,
-configuration applicability, checking scope, and modification intent distinct.
-Tool-specific policies should be explicit parameters rather than hidden axioms.
+Concepts can be understood separately, but their composition must exercise
+shared identities and interactions. Real-world events need not be core actions:
+an installation retarget can become logical delete/create; a file edit must not
+lose its identity/structure distinction.
 
-## Synthetic engine events
+## Discovery context
 
-Real-world changes need not be engine primitives. An editable-install retarget can
-be represented as deleting the old installation contribution and creating the
-new one, rebuilding its derived state rather than adding a special fast path.
-These are logical events: neither source tree is deleted, and contributions from
-other installations must remain intact.
-
-Compare the composed operation's outcomes after reconciliation. If intermediate
-absence must not be visible, the pair needs a shared publication boundary, not
-necessarily a new engine primitive. The model is a planning and auditing tool;
-this comparison is not a proof of implementation correctness.
-
-## Validation expectations
-
-- Maintain a source ledger for semantic claims and open policy questions.
-- Exercise interactions across layouts and event chains, not only per-feature cases.
-- Seek allowed worlds with identical observations but different required answers.
-- Keep reference semantics separate from candidate discovery algorithms.
-- Record scope bounds, assumptions, counterexamples, and deliberate broken variants.
-- Use implementation comparisons as evidence, not a majority-vote oracle.
+- [Initial modeling proposal](proposal.md): broader exploratory domain questions.
+- [Open-issue audit](issue-audit.md): motivating reports and evidence limits,
+  not normative definitions.
