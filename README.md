@@ -12,6 +12,12 @@ some projects will almost certainly not be implemented as described, or at all
 (for example, I have multiple docs about different approaches to determinism
 and at most one of them will be implemented on trunk).
 
+## Formal specifications
+
+Executable models, assumptions, audits, and reproduction instructions live under
+[`formal-specs/`](formal-specs/). The first collection covers
+[Pyrefly SCC solving](formal-specs/pyrefly-scc/).
+
 ## Archived projects
 
 The existing project docs, design notes, and reproductions are archived under
