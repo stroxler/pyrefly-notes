@@ -1,22 +1,31 @@
 # Python project structure
 
-Start with one small domain model and extend the same world in stages. The
-primary model is a precise system sketch with a rich concept vocabulary, intended
-to make code organization tractable. Checks aid exploration and auditing; proving
-correctness of either the model or Pyrefly is not its main goal.
+The primary model is a precise system sketch for tractable code organization.
+Checks support exploration and auditing, not a proof of the model or Pyrefly.
 
-## First milestone: flat files
+## Review surface
 
-- [Concept-design sketch](DESIGN.md): purpose, state, actions, and operational
-  principle, following Daniel Jackson's framing.
-- [`flat_files.als`](flat_files.als): one directory with named files and opaque
-  contents. Create allocates an incarnation; edit preserves identity and directory
-  structure; delete retires it. No Pyrefly APIs or caches are modeled.
-- [`flat_files_checks.als`](flat_files_checks.als): structural/content locality,
-  whole-lifetime identity, fresh recreation, and lifecycle witnesses. Every
-  command states its scope and expected SAT/UNSAT outcome.
+Start with [`project_tree.als`](project_tree.als) and the short [concept sketch](DESIGN.md).
+The primary model stays within a **200-line review budget**; regression checks and
+tooling are separate. It evolves the flat-directory milestone rather than keeping
+competing active versions.
 
-On a POSIX host, with Python 3, Java, and an Alloy **6.2.0** CLI named `alloy`:
+This milestone adds a rooted directory hierarchy and directory-scoped settings:
+
+- Create a file or directory, edit a file, and delete a subtree.
+- Edit preserves identity and structure, including for ordinary config files.
+- Nearest ancestor configuration wins under an explicitly chosen whole-value
+  profile; deleting an override exposes the current ancestor declaration.
+- Keep the selected declaration's identity as well as its settings value.
+
+There are no aliases, moves, observations, interpreter queries, exclusions, or
+refactor policies yet. Malformed/unknown config parsing and partial-field merging
+are also outside the chosen profile. The distinguished config filename is a
+symbol, not a claim about a particular Python tool's discovery rules.
+
+## Run checks
+
+With Python 3, a POSIX host, Java 17+, and an Alloy **6.2.0** CLI named `alloy`:
 
 ```sh
 cd formal-specs/project-structure
@@ -24,42 +33,30 @@ python3 run_alloy.py
 python3 -m unittest -v test_run_alloy test_model_mutations
 ```
 
+[`project_tree_checks.als`](project_tree_checks.als) states every command's bounds
+and expected outcome. Generic checks use 2 directories, 2 files, 2 names,
+2 contents, 2 settings, and 5 steps, allowing one level below Root. Deeper lifecycle
+witnesses use their own larger bounds; this does not check every invariant at
+those larger sizes. Witnesses retain flat-file cases and add nested settings,
+same-name/different-directory, subtree removal, and skipped unconfigured ancestors.
+
 The runner defaults to MiniSat (`--solver sat4j` selects Java-only checking), one
-Java process, a requested 512 MiB heap, and a 180-second timeout. Cleanup on
-failure, timeout, Ctrl-C, or SIGTERM terminates the launcher's POSIX process group,
-including inherited checker children, with at most ten additional seconds for
-reaping. A custom launcher must preserve that group and not override the heap.
-`--output /path/to/new-directory` preserves receipts and witness JSON;
-an existing directory is never overwritten. Missing/incomplete receipts or
-terminal results, unexpected outcomes, checker errors, and timeouts fail
-validation. Mutation regressions exercise both SAT/UNSAT mismatch directions.
+process, a requested 512 MiB heap, and a 180-second timeout. Existing output paths
+are never overwritten. Receipts, terminal outcomes, and errors are checked;
+failures and interruption clean up the POSIX process group. A custom launcher must
+preserve that group and heap setting. `--output /path/to/new-directory` keeps results.
 
-A successful bounded check establishes no counterexample within its stated
-scope—not correctness for all directory sizes, a runtime speedup, or a relation
-to implementation code. Content values are abstract; a same-content write is an
-idle/no-op here. File allocation history is specification-only, and finite scopes
-can exhaust the supply of incarnations. The main checks bound 2 names, 3 file
-incarnations, 2 contents, and at most 6 lasso steps. Allocation history grows, so
-creation occurs only in the finite prefix, not the loop. No fairness or
-eventual-progress property is assumed. The Alloy model can be opened directly on
-other supported hosts; this small runner's process-control contract is POSIX-only.
+Checks are bounded, not evidence of arbitrary-size correctness or measured
+performance. Finite incarnation history permits creation only in the trace prefix.
+Content and settings are abstract; same-content writes are idle/no-ops. No fairness
+or eventual-progress assumption is included. The model itself can be opened in
+Alloy on other supported hosts; the runner's process-control contract is POSIX-only.
 
-## Extension order
+## Next layers
 
-1. Flat files and the identity-preserving edit fast path.
-2. Directory hierarchy and sub-config applicability.
-3. Exclusions and virtualenvs, separating checking, import visibility, and
-   automated-refactor eligibility.
-4. Interacting symlinks and editable installations, including changing
-   observations and normalization at boundaries.
+1. Exclusions and environments, with separate checking/refactor eligibility.
+2. Interacting symlinks/editable installs and changing observations.
 
-Concepts can be understood separately, but their composition must exercise
-shared identities and interactions. Real-world events need not be core actions:
-an installation retarget can become logical delete/create; a file edit must not
-lose its identity/structure distinction.
-
-## Discovery context
-
-- [Initial modeling proposal](proposal.md): broader exploratory domain questions.
-- [Open-issue audit](issue-audit.md): motivating reports and evidence limits,
-  not normative definitions.
+Normalize real-world mechanisms at boundaries, but preserve meaningful identities,
+contexts, and the file-edit fast path. [The initial proposal](proposal.md) and
+[issue audit](issue-audit.md) provide discovery context, not normative definitions.

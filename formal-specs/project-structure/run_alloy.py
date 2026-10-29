@@ -131,7 +131,7 @@ def main(argv=None):
     parser.add_argument("--alloy", default="alloy", help="Alloy 6.2.0 CLI executable")
     parser.add_argument("--solver", default="minisat", help="Alloy solver ID; use sat4j for Java-only checking")
     parser.add_argument("--model", type=Path,
-                        default=Path(__file__).with_name("flat_files_checks.als"))
+                        default=Path(__file__).with_name("project_tree_checks.als"))
     parser.add_argument("--timeout", type=float, default=180, help="Total checker timeout in seconds")
     parser.add_argument("--output", type=Path, help="Keep results in a new directory; never overwrite one")
     args = parser.parse_args(argv)
