@@ -1,96 +1,63 @@
-# Flat files: concept-design sketch
+# Project structure: concept-design sketch
 
-The primary Alloy model is a system sketch more precise than Markdown: a rich
-vocabulary of concepts and their composition that makes code organization
-tractable. Its main goal is not to prove either the model or Pyrefly correct.
-Checks support exploration and auditing; they are not the organizing purpose.
-The [SCC retrospective](https://github.com/stroxler/pyrefly-notes/blob/e5e7ce781bdc458cbfa6b8cf294a9218bccd1b6b/formal-specs/pyrefly-scc/RETROSPECTIVE.md)
-is a precedent: an explicit protocol helped organize auditing and simplification,
-including unified progress state, removed bookkeeping, and clearer separation
-of local tracking from shared-cache decisions—not a proof of today's code.
+The primary Alloy model is a precise system sketch and concept vocabulary for
+making code organization tractable. Checks support exploration and auditing;
+proving either the model or Pyrefly correct is not its main purpose.
 
 Following Daniel Jackson's [concept-design framing](https://groups.csail.mit.edu/sdg/pubs/2022/nfm-jackson.pdf),
-start with one concept rather than one concept per source file.
+organize around purpose, state, actions, and an operational principle—not one
+concept per existing source file.
 
-## FileDirectory
+## FileTree
 
-- **Purpose:** store and retrieve contents by name, letting consumers distinguish
-  an in-place update from replacement.
-- **State:** a directory's name-to-file bindings and each live file's contents.
-  Allocation history in the model distinguishes file incarnations; it is not a
-  proposed engine data structure.
-- **Actions:** create an unused name with a fresh file; edit an existing file's
-  contents; delete a binding and its file. Idle is only temporal-model plumbing.
-- **Operational principle:** create makes a file readable by name; editing changes
-  what that same file contains; deleting makes it unavailable. Reusing the name
-  creates a different file, even if the contents are identical.
+- **Purpose:** organize named contents while distinguishing edits from replacement.
+- **State:** a rooted directory tree, name bindings, and file contents. Allocation
+  history distinguishes logical incarnations, not operating-system inodes.
+- **Actions:** create a file, create a directory, edit a file, or remove a subtree.
+- **Operational principle:** a name locates contents within its directory; edit
+  changes the same file; removal retires the subtree; name reuse creates a new
+  incarnation. Identical basenames in different directories are independent.
 
-The distinction exposes a performance opportunity without modeling a cache:
-edit preserves directory structure, while create/delete change it. An edit can
-still change imports, exports, and downstream diagnostics. No runtime speedup or
-implementation-correctness proof follows from checking this model.
+## Scoped settings
 
-## Distinctions to preserve as the model grows
+- **Purpose:** give each object a coherent settings context without copying
+  configuration into every object.
+- **State/input:** declarations and containment. In this composition, a declaration
+  comes from an ordinary file in a distinguished configuration-name slot.
+- **Actions/composition:** file create/edit/delete changes declarations using the
+  same FileTree actions. Applicability and selection are derived queries.
+- **Operational principle:** an ancestor supplies settings until a nearer scope
+  overrides it. Editing the ancestor leaves the override intact; removing the
+  override reveals the ancestor's latest settings.
 
-The editable-install work reports three recurring gaps. Treat these as evidence
-for domain questions, not as proof of existing code behavior or new subsystems:
+This is an explicit nearest-ancestor, whole-value policy profile, not a universal
+rule for Python or tools. It includes a directory's own declaration when selecting settings for
+that directory and its config file. Parsing is normalized at the boundary; malformed
+or unknown configs, glob scopes, and partial-setting merges are not modeled yet.
+The source declaration's identity is retained even when two declarations have
+identical settings. An ordinary edit leaves this settings profile unchanged; a
+config edit can affect its scope without changing directory structure.
 
-- **Import exposure versus ownership:** import visibility, source provenance,
-  checking eligibility, and refactor permission are distinct contextual relations.
-  An import root or editable ancestor alone cannot stand in for all four.
-- **Spelling versus observed identity:** aliases can identify one directory, and
-  one pathname can later identify another. Preserve the identity basis of
-  observed ownership evidence; do not silently transfer it to a replacement.
-  Explicit path-based user intent may follow different, declared rules. Unknown
-  identity stays unknown; failure to observe equality is not observed inequality.
-- **Configuration versus observations:** cached queries, live inspections, and
-  resolved snapshots may describe different moments. Retain enough provenance
-  to decide when they can be combined rather than treating them as one current fact.
+## Keep the same world small
 
-Future interaction cases should include an installed dependency below editable
-source, alias retargeting, directory replacement at an unchanged pathname with
-cached positive evidence, and a configuration change between observations. The
-flat-file model supplies the edit/recreation distinction, not these ownership or
-observation semantics yet.
+Next add exclusions and environments, separating import visibility, source
+provenance, checking eligibility, and refactor permission. Then add interacting
+aliases/editable exposure. Preserve spelling versus observed identity, and
+current configuration versus historical observations; unknown identity must not
+become observed inequality.
 
-## Candidate organizing principle
+A candidate composition is **normalize observations → derive separate decisions
+→ invalidate dependencies**. Retain provenance and relevant observed absences.
+Retargets/rebuilds can normalize into binding replacement or logical delete/create;
+file edit remains distinct. Dependencies, not global rebuilding or feature-specific
+repair paths, should preserve fast paths. These layers are future work, not
+semantics already supplied by the known-world tree model.
 
-**Normalize observations → derive separate decisions → invalidate dependencies.**
+Ask whether representative regressions share a small vocabulary rather than
+requiring one repair action per case. Counterexamples may reveal a missing
+invariant, dependency, or a need to change the representation itself.
 
-Observations state what is known, its source, and when/context it was obtained.
-Interpret them under declared import semantics and policy precedence to derive
-import visibility, checking eligibility, and refactor ownership separately.
-Dependencies connect each decision to its supporting observations and policy,
-including relevant observed absences. Changes invalidate affected decisions,
-not every result or several feature-specific repair paths.
-
-At the boundary, a symlink retarget can replace an observed binding and an
-environment rebuild can delete/create relevant observations. A file edit remains
-identity-preserving. Explicit dependencies, rather than rebuilding everything,
-should preserve the fast paths. These are candidate design choices to investigate,
-not semantics already supplied by the flat-file model.
-
-The abstraction test is whether representative regressions can share the same
-small vocabulary without scenario-specific actions or ownership exceptions.
-Counterexamples should prompt us to examine missing invariants, dependencies, or
-the state representation itself—not formalize another repair to existing code.
-New domain concepts can be added in stages; they need a purpose beyond one bug.
-
-## Grow the same world
-
-1. **Flat files:** create/edit/delete, identity, contents, and local effects.
-2. **Directory hierarchy and sub-configs:** add containment and configuration
-   applicability, composing concepts over the same file identities.
-3. **Exclusions and environments:** separate checking scope, import visibility,
-   and automated-refactor eligibility; make environment/context selection explicit.
-4. **Aliases and editable exposure:** combine symlinks, installation provenance,
-   environments, scopes, and their changing observations.
-
-At each stage, seek the smallest concepts/actions that meet the purpose and test
-interactions, not isolated features. Normalize real-world mechanisms at boundaries
-where their relevant effects are equivalent. Preserve edit's identity and
-structure fast path rather than replacing every update with delete/create.
-
-The detailed assumptions, frames, assertions, and bounds live beside the Alloy
-code. These specifications are for planning, documentation, and auditing; future
-stages and a formal relation to implementation code remain explicit boundaries.
+The [SCC retrospective](https://github.com/stroxler/pyrefly-notes/blob/e5e7ce781bdc458cbfa6b8cf294a9218bccd1b6b/formal-specs/pyrefly-scc/RETROSPECTIVE.md)
+is a precedent for organizing simplification around an explicit protocol. Detailed
+semantics belong in [the Alloy source](project_tree.als), not a parallel Markdown
+specification. Future stages and a model-to-code relation remain explicit boundaries.
