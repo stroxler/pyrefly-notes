@@ -1,89 +1,61 @@
-# SCC solving: a retrospective
+# SCC solving: an audit retrospective
 
-The post-hoc specification gave auditing a reference contract: calculations
-that depend cyclically must be solved together, provisional results must stay
-local, and completion must leave no active work behind. The changes below
-show how the implementation evolved around that contract, through fixes,
-structural simplifications, and later refinements.
+The provenance for the model-assisted audit is the
+[original gap analysis in learn-specification](https://github.com/stroxler/learn-specification/blob/8b673158bf56a3f9cf618163260cf9e2ade83a16/tla%2B/pyrefly_fixpoint/spec-issues.md).
+It records the concerns raised against the intended protocol. The fixing-commit
+links below were reconstructed later; that is separate evidence, not an
+original six-bug attribution ledger.
 
-## What changed
+## The clearest worked example
 
-- **Missed members leaked provisional answers.** A path could leave an SCC
-  and re-enter it without bringing the intervening calculation into the
-  component. The no-leakage contract made this suspicious;
-  [the April fix](https://github.com/meta/pyrefly/commit/7d09729fcf1c5d074277ded418822649d1ec4430)
-  added absorption, and July's
-  [caller-membership check](https://github.com/meta/pyrefly/commit/99604f5e70d5bf9bca1638bdc055e2c9647bf4b4)
-  and [overlap check](https://github.com/meta/pyrefly/commit/63412a1f8907549497f2da4ad79890c7c6fcc2ef)
-  replaced unreliable positional shortcuts.
+A dependency path could leave an SCC and re-enter it without adding the
+intervening calculation to the component. That allowed a preliminary answer
+to escape. The [April 3 fix](https://github.com/meta/pyrefly/commit/7d09729fcf1c5d074277ded418822649d1ec4430)
+explicitly describes the missing merge as a violation of the specification's
+no-leakage contract. Its reported 6,000-run SymPy check found no nondeterminism
+at that checkpoint. This supports a specification-guided audit story; the
+commit does not distinguish the TLA model from the earlier Markdown contract.
 
-- **Stack-bound accounting drifted.** Balancing pushes and pops was fragile
-  when membership changed between them.
-  [Two missing increments were repaired](https://github.com/meta/pyrefly/commit/347814292508f2107020f2ceefc2cea2bcedfecd);
-  after membership-based detection replaced its readers, the
-  [upper-bound field and bookkeeping were deleted](https://github.com/meta/pyrefly/commit/5d3b33fb09e8f509aaa270e06b1a677b054dfda0).
-  This removed the unreliable running total, not the stable completion anchor.
+## Concerns recorded by the original audit
 
-- **Expansion did not always request a restart.** Absorbing previously
-  untracked calculations could grow membership without invalidating the pass.
-  [The fix marked that expansion](https://github.com/meta/pyrefly/commit/55b435306d420cfa15418c9bf53c9aa3f08134de),
-  matching the spec's restart contract. Restart remained
-  [deliberately deferred until the pass unwound](https://github.com/meta/pyrefly/commit/d07528cc1717c8eaacddb7ab89f572ce1887ccf8)
-  to avoid repeatedly driving the same members.
+- **Duplicated progress state:** the audit flagged two per-node state maps.
+  [Unifying them on April 1](https://github.com/meta/pyrefly/commit/0c61ae9203de9399794ac6f3da8faa131eb5a165)
+  reduced the bookkeeping that had to stay synchronized. This was a structural
+  simplification, not a separately reproduced nondeterminism fix.
+- **Local lifecycle versus shared results:**
+  [separating stack handling from the cache on April 2](https://github.com/meta/pyrefly/commit/1bf73739f226b1f0d02fd9d2945f9e348a17ba57)
+  clarified which state governs recursion. Reusing a published final answer
+  is legitimate; the original suspicion of all shared reads was too broad.
+- **Missing-state fallbacks:** [debug assertions](https://github.com/meta/pyrefly/commit/c87d6f4752f74f76c164fa752441b1b19dc20309)
+  made violations visible, but did not resolve every underlying path.
+- **Restart and lifetime:** [explicit caller handoff](https://github.com/meta/pyrefly/commit/96330511ef81267ab37ecf1e1bc97b2835d91056)
+  and [retained answer generations](https://github.com/meta/pyrefly/commit/9c4463c7849d91d7dbaea7114a13b6918e7f76bf)
+  later clarified the contract. A pass can be invalid for publication while
+  its answers remain available to active readers. Eager deletion was not the
+  right literal interpretation of the simplified model.
 
-- **Two progress maps obscured one protocol.** Discovery and iteration
-  maintained parallel per-node state maps.
-  [Unifying them](https://github.com/meta/pyrefly/commit/0c61ae9203de9399794ac6f3da8faa131eb5a165)
-  removed redundant bookkeeping and made comparison with the spec's single
-  state machine easier; this was a structural simplification, not a separately
-  demonstrated nondeterminism fix.
+These links associate later changes with recorded concerns. They do not
+independently establish that the formal model caused every change.
 
-- **A merged component could lose its driver.**
-  [The first fix](https://github.com/meta/pyrefly/commit/9cd13c27f9123c69311df144ba08772e9e50b971)
-  prevented yielding to a nonexistent ancestor driver. Later,
-  [explicit caller handoff](https://github.com/meta/pyrefly/commit/96330511ef81267ab37ecf1e1bc97b2835d91056)
-  kept absorbed active work alive, and
-  [marking discovered members as in progress](https://github.com/meta/pyrefly/commit/eb1548d976209c45826423d499abd88ac22e27d2)
-  stopped a shared-answer shortcut from mistakenly removing an active caller.
+## Later bug fixes, not attributed to the original model-assisted episode
 
-- **Concurrent publication could interleave component results.**
-  [Ordered ownership before publication](https://github.com/meta/pyrefly/commit/dc25fba53ab340fce1135ba92ded51c5796035a0)
-  serialized workers solving the same component. The component-wide publication
-  contract highlighted the risk; non-identical overlapping components remain
-  an explicit boundary of the design.
+- **July 29:** [caller-membership re-entry](https://github.com/meta/pyrefly/commit/99604f5e70d5bf9bca1638bdc055e2c9647bf4b4)
+  and [overlap detection](https://github.com/meta/pyrefly/commit/63412a1f8907549497f2da4ad79890c7c6fcc2ef)
+  addressed concrete SymPy and Apprise failures. The
+  [unreliable upper-bound bookkeeping was then removed](https://github.com/meta/pyrefly/commit/5d3b33fb09e8f509aaa270e06b1a677b054dfda0).
+- **September 8:** [live members were distinguished from queued work](https://github.com/meta/pyrefly/commit/eb1548d976209c45826423d499abd88ac22e27d2),
+  preventing a shared-answer shortcut from removing an active caller. A
+  deterministic regression demonstrated the old initialization's failure.
 
-- **Evicted module state could leave iteration stuck.** A drive could do no
-  work yet leave the same calculation queued forever.
-  [Removing unstarted work after a no-op drive](https://github.com/meta/pyrefly/commit/f7776174d5ee187a2cb3909cab9f79f10d9913d4)
-  fixed that loop. Eviction is outside the model, so this is an operational
-  repair rather than evidence that the model covers module lifetime.
+## Attribution boundary
 
-- **The caller could receive an old answer after a successful fixpoint.**
-  [Rereading the published answer](https://github.com/meta/pyrefly/commit/ce47d1cbfc649e2392419a1ee6b0ca4d3ce1c0f0)
-  replaced the discovery-phase return value. This directly serves the
-  no-provisional-answer-leakage contract: a correct cache alone was not enough.
+The early-March framework fixes are excluded from the conservative
+formal-model-assisted account: they precede the committed TLA model history.
+Uncommitted work could change that chronology, so this exclusion does not
+contradict the author's recollection. The earlier Markdown contract is a
+separate source of intent, not evidence that the later TLA model existed then.
 
-- **Local tracking and shared-cache decisions were entangled.**
-  [Removing the cache dependency from stack handling](https://github.com/meta/pyrefly/commit/1bf73739f226b1f0d02fd9d2945f9e348a17ba57)
-  clarified the local state machine. The old review's blanket suspicion of
-  shared reads was too broad: reusing another worker's published final answer
-  is not itself a provisional leak.
-
-## What the history does not establish
-
-Missing-state fallbacks received
-[debug assertions](https://github.com/meta/pyrefly/commit/c87d6f4752f74f76c164fa752441b1b19dc20309),
-but this was a diagnostic mitigation, not a complete resolution. Likewise,
-retaining answers during unwind is intentional:
-[the later generation-based representation](https://github.com/meta/pyrefly/commit/9c4463c7849d91d7dbaea7114a13b6918e7f76bf)
-makes both their lifetime and the required cold restart explicit.
-
-The commits report improved repeatability on SymPy and Apprise. Those are
-historical test outcomes, not a guarantee that every source of nondeterminism
-was eliminated. The missed-reentry commit explicitly attributes its finding
-to a violation of the specification; elsewhere, these entries connect changes
-to the contract without claiming the spec caused every fix.
-
-The remaining discovery assumption and current model gaps are summarized in
-[the audit](AUDIT.md); detailed transition explanations live in the spec
-comments and the linked commits.
+The original audit is a record of findings and questions, not proof that every
+allegation was a bug. The design's discovery assumption remains explicit in
+[the sketch](DESIGN.md); current code findings are kept separate in
+[the audit context](AUDIT.md).
