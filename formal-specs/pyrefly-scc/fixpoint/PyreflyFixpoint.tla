@@ -1,25 +1,19 @@
 ---- MODULE PyreflyFixpoint ----
 
-\* Iterative fixpoint SCC solver.
+\* Iterative SCC protocol for planning, documentation, and auditing.
+\* The model records answer availability, not inferred types. Phase 0 is
+\* discovery; phases 1..MaxPhase repeat solving with cold/warm cycle breaks.
+\* Fixed iteration count keeps the protocol separate from convergence and
+\* type-equality semantics, which are not modeled here.
 \*
-\* This models Pyrefly's SCC solving algorithm. The solver runs a fixed
-\* number of iterations (MaxPhase) rather than checking for convergence.
+\* The graph is chosen once and frozen. Real solving discovers dependencies
+\* using provisional answers, so its component can grow between passes.
+\* Continuation ownership, retained answer generations, concurrency, depth
+\* overflow, and per-module side effects are also outside this model.
 \*
-\* Convergence detection is omitted intentionally: in Pyrefly, the
-\* iteration count is bounded (e.g., max 5). Convergence is just an
-\* optimization that allows early exit when answers stabilize. Since
-\* some SCCs genuinely don't converge, the algorithm must be correct
-\* without it. This model verifies correctness properties under the
-\* fixed-iteration protocol.
-\*
-\* NOTE: In the real Pyrefly, the dependency graph is dynamic — edges
-\* are discovered during solving, so different phases may traverse
-\* different subsets of the true graph. This model uses a static graph
-\* for simplicity. Modeling dynamic edge visibility is left for a
-\* future iteration (the subtleties of per-phase edge sets are better
-\* explored with a separate graph-generation tool or model).
-\*
-\* See DESIGN.md for the full design rationale.
+\* Known model limitations are documented beside their actions/predicates
+\* and exercised by ../checks. No formal relation to the Rust code is supplied.
+\* See DESIGN.md for the high-level sketch, not a second set of transition rules.
 
 EXTENDS Sequences, FiniteSets, Naturals
 
@@ -85,22 +79,21 @@ SccPhase(n) ==
     IN  IF i = 0 THEN 0
         ELSE scc_stack[i].phase
 
-\* The dependency edges visible to node n.
-\* With a static graph, this is always graph[n].
-\* In the real Pyrefly code, this would be phase-dependent
-\* (some edges are only discovered in later phases).
+\* The dependency edges visible to node n are always graph[n] here.
+\* A dynamic extension needs an exposure schedule and executed solve counts.
+\* Its input contract must prevent a proper subcomponent from reaching a
+\* publication boundary before full membership is discovered. Merely exposing
+\* an edge on a hypothetical later pass does not help after an early exit.
 VisibleGraph(n) == graph[n]
 
 \* Minimum / Maximum of a nonempty set of naturals.
 MinOfSet(S) == CHOOSE x \in S : \A y \in S : x <= y
 MaxOfSet(S) == CHOOSE x \in S : \A y \in S : x >= y
 
-\* Deterministic choice from a nonempty set of nodes.
-\* In the real code this is min(CalcId); here we use CHOOSE which
-\* is deterministic in TLC (always picks the same element for the
-\* same set). The specific choice doesn't matter for correctness —
-\* what matters is that it's deterministic and that invariant (c)
-\* verifies all members get driven.
+\* Stable choice from a nonempty set of nodes. The code orders CalcIds;
+\* CHOOSE selects the same element for the same set here. Dependency descent
+\* remains nondeterministic, and no answer-value comparison across entrypoints
+\* is modeled. Driving all known members is a separate protocol obligation.
 PickNode(S) == CHOOSE x \in S : TRUE
 
 \* Remove entries at indices in `remove` from sequence `seq`.
@@ -200,6 +193,8 @@ OverlappingSccs(nodes) ==
 \* Merge node_states from overlapping SCCs with new cycle members.
 \* Existing SCC members keep their current state; new members get
 \* SccInProgress (they are on the stack, being computed).
+\* MergedCurrAnswers clears availability even for retained SccDone members.
+\* This is an abstraction gap: real unwinding retains their answer storage.
 MergedNodeState(all_members, overlapping) ==
     [n \in all_members |->
         IF \E i \in overlapping : n \in scc_stack[i].members
@@ -208,11 +203,12 @@ MergedNodeState(all_members, overlapping) ==
              IN scc_stack[i].node_state[n]
         ELSE "SccInProgress"]
 
-\* Merging always resets to phase 0. MergeOrCreateScc only fires
-\* when membership is expanding (CycleAlreadyContained was false),
-\* so the SCC must redo discovery with the expanded membership.
-\* This is the demotion logic: any merge during fixpoint iteration
-\* forces a full restart.
+\* Membership expansion invalidates the old pass. This model resets eagerly
+\* to phase 0; the Rust solver retains answer generations while active calls
+\* unwind, then cold-restarts before convergence or budget-based publication.
+\* That deferred state is not represented by the numeric phase here.
+\* ModelProbes checks whether positive-phase expansion is actually reachable
+\* in the selected scope; MergeMutation demonstrates the static scope's gap.
 MergedPhase(overlapping) == 0
 
 \* Merged prev/curr answers: always cleared since phase resets to 0.
@@ -284,9 +280,10 @@ StartRoot(n) ==
     /\ stack' = <<n>>
     /\ UNCHANGED <<scc_stack, graph, scc_anchors_read>>
 
-\* The top of the stack has a Fresh (globally) dependency: push it.
-\* Uses VisibleGraph — only edges visible in the current phase
-\* can be traversed.
+\* The top of the stack has a globally Fresh dependency: push it.
+\* This action does not suspend a caller whose child SCC awaits driving.
+\* DeadlockProbe exposes the resulting impossible caller continuation; the
+\* real lookup drives the completed child SCC before returning to its caller.
 Descend(dep) ==
     /\ stack /= <<>>
     /\ LET top == Head(stack)
@@ -590,8 +587,9 @@ SccStackOrdered ==
 \* If a node read preliminary answers (via placeholder or previous
 \* answer), it must have read from exactly one SCC, and that SCC
 \* must be the one the node belongs to.
-\* A violation means a node consumed a preliminary answer from a
-\* *different* SCC without being merged into it.
+\* A violation means a tracked placeholder/previous-answer read has no
+\* matching SCC. Ordinary SccDone reads are not tracked; merges and phase
+\* transitions clear history. This is narrower than all provisional leakage.
 NoCrossSccLeakage ==
     \A n \in Nodes :
         LET anchors == scc_anchors_read[n]
@@ -601,17 +599,19 @@ NoCrossSccLeakage ==
                /\ scc_idx /= 0
                /\ scc_stack[scc_idx].anchor_pos \in anchors
 
-\* (b) Committed SCCs match ground truth.
-\* At commit time (phase = MaxPhase, all members done), the SCC's
-\* members should be exactly one of the ground-truth SCCs.
+\* (b) Membership agrees with the chosen static graph at the final phase.
+\* This checks every final-phase state, not only the committing action.
 CommittedSccMatchesTruth ==
     \A i \in 1..Len(scc_stack) :
         scc_stack[i].phase = MaxPhase =>
             scc_stack[i].members \in TrueSccSets
 
-\* (c) All answers available at commit.
-\* When an SCC reaches MaxPhase and all members are SccDone with
-\* none on the stack, every member must have a current answer.
+\* (c) Historical answer-completeness check.
+\* Its antecedent is unreachable in the supplied scope: the last final-phase
+\* FinishCalculation removes the SCC without first materializing an all-Done,
+\* off-stack state. ModelProbes makes that absence explicit. A useful check
+\* should cover the committing action, including the finishing node's answer,
+\* or record that answer in a separate state before publication.
 AllAnswersAtCommit ==
     \A i \in 1..Len(scc_stack) :
         /\ scc_stack[i].phase = MaxPhase
