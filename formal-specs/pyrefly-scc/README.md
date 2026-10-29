@@ -10,6 +10,10 @@ relation between the model and the implementation.
 - `stack/` and `fixpoint/`: executable models; detailed explanations live in
   their comments rather than parallel Markdown definitions.
 - `checks/`: coverage probes, an undetected mutation, and a model-only deadlock.
+- [Alloy stack experiment](alloy-stack/): the temporal traversal model and trace
+  summarizer.
+- [Dynamic graph experiment](dynamic-fixpoint/): the Alloy generator, exporter,
+  supporting tools, generated examples, and historical v0/v1 TLA consumers.
 
 ## Provenance
 

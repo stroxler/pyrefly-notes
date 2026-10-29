@@ -1,0 +1,3 @@
+# Generated dynamic-graph artifacts
+.generated/*
+!.generated/.gitkeep

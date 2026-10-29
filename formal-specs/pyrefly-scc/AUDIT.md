@@ -7,7 +7,8 @@ transition-level explanations belong in the spec comments.
 
 ## Scope
 
-The 2026-10-29 source audit used
+The 2026-10-29 source audit concerned the static models in `stack/` and
+`fixpoint/` and used
 [Pyrefly at 8003f9b](https://github.com/meta/pyrefly/blob/8003f9b3d96b207c916c4a5c5ba039fb568cb857/pyrefly/lib/alt/answers_solver.rs).
 The models originated in
 [learn-specification at 345a774](https://github.com/stroxler/learn-specification/tree/345a7744598e1e8ab9e6d8ef161dc876c2d8c8b2/tla%2B).
@@ -19,8 +20,10 @@ refinements; it is not a list of bugs asserted to exist today.
 The current implementation explicitly separates local progress, ownership of
 active work, retention of provisional answers, and final publication. The
 models simplify those mechanisms and track answer availability, not type
-values or diagnostics. They also freeze the graph and omit concurrent workers,
-module eviction, and depth overflow.
+values or diagnostics. The static models freeze the graph and omit concurrent
+workers, module eviction, and depth overflow. The separate
+[dynamic experiment](dynamic-fixpoint/) is preserved with its Alloy inputs and
+historical consumers; it is not covered by the static audit findings below.
 
 The intended discovery assumption is that every entrypoint finds the full
 component before it can publish a proper subcomponent. Whether Python bindings

@@ -8,19 +8,16 @@ both jobs in Alloy did not scale as well.
 Alloy -> graph cases -> TLC -> counterexamples and regressions
 ```
 
-Keeping graph generation separate makes dependency-discovery assumptions
-reviewable without adding the generator's search space to every solver run.
-Generated cases need to expose missing-member and late-expansion scenarios,
-not just ordinary cycles. Coverage must concern edges actually traversed
-before publication, not edges that would appear if solving continued after
-an early exit.
+The record now includes the [Alloy stack experiment](../alloy-stack/) and the
+[dynamic-graph generator, exporter, and historical TLA consumers](../dynamic-fixpoint/).
+Their short reading guides distinguish executable tools from scaffolds; their
+schemas and transition rules are documented in the source.
 
-The checked-in solver model currently freezes its graph. The historical
-generator and generated-case corpus are not included here; this sketch does
-not describe an executable pipeline in this directory. When those artifacts
-are added, their schemas and generation constraints should be documented
-beside the generator code rather than duplicated in Markdown.
+Keeping generation separate makes dependency-discovery assumptions reviewable
+without adding the generator's search space to every solver run. Cases need
+late-expansion coverage, and relevant edges must actually be traversed before
+publication—not merely appear in a hypothetical later pass.
 
-A future Quint experiment could compare small exhaustive runs with larger
-seeded simulations. Saved failing cases remain useful regardless of the
-chosen specification language.
+The main `fixpoint/` model remains a separate, static simplification. Preserving
+the dynamic experiment does not transfer the static audit's findings to those
+versions or establish their assumptions for Python code.
