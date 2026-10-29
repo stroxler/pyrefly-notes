@@ -11,6 +11,8 @@ PushCountInit ==
 RecordPush(push_count, n) ==
     [push_count EXCEPT ![n] = @ + 1]
 
+\* A per-node cyclic schedule, not a global clock. Only starts that compute a
+\* node advance its count; cache/placeholder/previous-answer reads do not.
 StepFor(push_count, n) ==
     ((push_count[n] - 1) % StepCount) + 1
 

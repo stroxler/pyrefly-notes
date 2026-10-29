@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -134,6 +135,22 @@ def cases():
                 '{e.members : e \\in committed_sccs} = {{"a","b","c","d"}}'
             ),
         },
+        "period-union-ring": {
+            # No row equals FullGraph; coverage requires combining the period.
+            "nodes": ["a", "b", "c"],
+            "full": {"a": {"a", "b"}, "b": {"b", "c"}, "c": {"c", "a"}},
+            "steps": [
+                {"a": {"a"}, "b": {"b"}, "c": {"c"}},
+                {"a": {"b"}, "b": set(), "c": set()},
+                {"a": set(), "b": {"c"}, "c": set()},
+                {"a": set(), "b": set(), "c": {"a"}},
+            ],
+            "baseline": 12,
+            "witness": (
+                "Finished /\\ late_merge_seen /\\ "
+                '{e.members : e \\in committed_sccs} = {{"a","b","c"}}'
+            ),
+        },
         "hidden-acyclic-rejected": {
             "nodes": ["a", "b"],
             "full": {"a": {"b"}, "b": {"b"}},
@@ -228,7 +245,10 @@ def main():
                 diagnostic = "Model checking completed. No error has been found."
             ok = code == expected and diagnostic in text
         elif case.get("reject"):
-            ok = code not in (0, 124) and "Assumption" in text and "false" in text
+            ok = (
+                code == 10
+                and re.search(r"(?s)Error: Assumption .*? is false\.", text) is not None
+            )
         else:
             ok = code == 0
         row = {"case": name, "exit": code, "passed": ok, "directory": str(run)}
