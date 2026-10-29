@@ -1,22 +1,14 @@
 ---- MODULE PyreflyFixpoint ----
 
-\* Iterative fixpoint SCC solver.
+\* Planning, documentation, and auditing model of the SCC protocol.
+\* The dependency graph and visibility schedule are supplied through
+\* DynamicGraph. RecordPush advances each node's schedule on a stack push.
+\* Answer availability is modeled, not inferred types or diagnostics.
+\* Fixed phases separate the protocol from concrete convergence semantics.
 \*
-\* This models Pyrefly's SCC solving algorithm. The solver runs a fixed
-\* number of iterations (MaxPhase) rather than checking for convergence.
-\*
-\* Convergence detection is omitted intentionally: in Pyrefly, the
-\* iteration count is bounded (e.g., max 5). Convergence is just an
-\* optimization that allows early exit when answers stabilize. Since
-\* some SCCs genuinely don't converge, the algorithm must be correct
-\* without it. This model verifies correctness properties under the
-\* fixed-iteration protocol.
-\*
-\* Dynamic dependency visibility is provided by DynamicGraph operators.
-\* The raw generated schedule is wrapped by Deps/DynamicDeps and the
-\* per-node push counter is updated via RecordPush on each stack push.
-\*
-\* See DESIGN.md for the full design rationale.
+\* This is the latest saved dynamic snapshot. Its positional bookkeeping
+\* is an experimental description, not a literal model of today's code.
+\* See ../DESIGN.md for the high-level sketch; transition details live here.
 
 EXTENDS Sequences, FiniteSets, Naturals, DynamicGraph
 

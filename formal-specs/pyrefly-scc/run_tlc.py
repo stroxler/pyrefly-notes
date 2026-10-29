@@ -1,65 +1,80 @@
 #!/usr/bin/env python3
-"""Reproduce the baseline checks and the audit's intentionally failing witness."""
+"""Explore Pyrefly SCC behavior for a supplied graph in a disposable directory."""
 
 import argparse
+import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
+
+
+def positive_int(value):
+    number = int(value)
+    if number <= 0:
+        raise argparse.ArgumentTypeError("must be positive")
+    return number
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--jar", required=True, type=Path, help="Path to tla2tools.jar")
-    parser.add_argument("--workers", type=int, default=2)
-    parser.add_argument("--timeout", type=int, default=180, help="Seconds per case")
+    inputs = parser.add_mutually_exclusive_group()
+    inputs.add_argument("--graph", type=Path, help="A RawDynamicGraph.tla input module")
+    inputs.add_argument(
+        "--alloy-json", type=Path, help="An Alloy generator solution JSON"
+    )
+    parser.add_argument("--workers", type=positive_int, default=2)
+    parser.add_argument("--timeout", type=positive_int, default=180, help="Seconds")
     parser.add_argument("--heap", default="2g", help="Java maximum heap")
-    parser.add_argument("--full-stack", action="store_true", help="Also run the original four-node stack configuration")
     args = parser.parse_args()
-    jar = args.jar.expanduser().resolve(strict=True)
     root = Path(__file__).resolve().parent
-    logs = Path(tempfile.mkdtemp(prefix="pyrefly-scc-tlc-"))
-    cases = [
-        ("stack-small", "stack", "pyrefly_stack", "StackSmall.cfg", False),
-        ("fixpoint", "fixpoint", "PyreflyFixpoint", "PyreflyFixpoint.cfg", False),
-        ("reachability-probes", "checks", "ModelProbes", "ModelProbes.cfg", False),
-        ("merge-mutation", "checks", "MergeMutation", "MergeMutation.cfg", False),
-        ("unfinished-deadlock", "checks", "DeadlockProbe", "DeadlockProbe.cfg", True),
-    ]
-    if args.full_stack:
-        cases.append(("stack-full", "stack", "pyrefly_stack", "pyrefly_stack.cfg", False))
-    failures = []
-    for name, directory, module, config, expect_deadlock in cases:
-        command = [
-            "java", "-XX:+UseParallelGC", "-Xmx" + args.heap,
-            "-DTLA-Library=" + str(root / "fixpoint"),
-            "-cp", str(jar), "tlc2.TLC", "-workers", str(args.workers),
-            "-metadir", str(logs / (name + "-states")),
-            "-config", str(root / directory / config),
-            str(root / directory / (module + ".tla")),
-        ]
-        logfile = logs / (name + ".log")
-        try:
-            with logfile.open("w") as output:
-                result = subprocess.run(command, cwd=logs, stdout=output, stderr=subprocess.STDOUT, timeout=args.timeout, check=False)
-        except subprocess.TimeoutExpired:
-            failures.append(name)
-            print(f"INCOMPLETE {name}: timeout; {logfile}")
-            continue
-        text = logfile.read_text()
-        matched = (
-            result.returncode == 11 and "Deadlock reached." in text
-            if expect_deadlock else
-            result.returncode == 0 and "No error has been found." in text
+    jar = args.jar.expanduser().resolve(strict=True)
+    run = Path(tempfile.mkdtemp(prefix="pyrefly-scc-tlc-"))
+    for name in (
+        "PyreflyFixpoint.tla",
+        "PyreflyFixpoint.cfg",
+        "DynamicGraph.tla",
+        "RawDynamicGraph.tla",
+    ):
+        shutil.copy2(root / "behavior" / name, run / name)
+    if args.graph:
+        shutil.copy2(
+            args.graph.expanduser().resolve(strict=True), run / "RawDynamicGraph.tla"
         )
-        label = "EXPECTED MODEL DEADLOCK" if expect_deadlock else "NO VIOLATION IN SCOPE"
-        print(f"{label if matched else 'UNEXPECTED RESULT'} {name}: {logfile}")
-        if not matched:
-            failures.append(name)
-    print(f"Logs: {logs}")
-    if failures:
-        raise SystemExit("Unexpected/incomplete cases: " + ", ".join(failures))
-    print("All expected audit outcomes reproduced. This is not proof of production correctness.")
+    elif args.alloy_json:
+        subprocess.run(
+            [
+                sys.executable,
+                str(root / "graphs" / "alloy_trace_to_tla_constants.py"),
+                str(args.alloy_json.expanduser().resolve(strict=True)),
+                str(run / "RawDynamicGraph.tla"),
+            ],
+            check=True,
+        )
+    print(f"Run directory: {run}", flush=True)
+    command = [
+        "java",
+        "-XX:+UseParallelGC",
+        "-Xmx" + args.heap,
+        "-cp",
+        str(jar),
+        "tlc2.TLC",
+        "-workers",
+        str(args.workers),
+        "-metadir",
+        str(run / "states"),
+        "-config",
+        "PyreflyFixpoint.cfg",
+        "PyreflyFixpoint.tla",
+    ]
+    try:
+        result = subprocess.run(command, cwd=run, timeout=args.timeout, check=False)
+    except subprocess.TimeoutExpired:
+        print("INCOMPLETE: TLC exceeded the time bound.", file=sys.stderr)
+        return 124
+    return result.returncode
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -21,7 +21,6 @@ import re
 import sys
 from pathlib import Path
 
-
 NODE_RE = re.compile(r"Node\$(\d+)$")
 
 

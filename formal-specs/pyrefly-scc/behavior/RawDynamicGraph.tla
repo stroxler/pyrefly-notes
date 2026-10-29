@@ -1,5 +1,10 @@
 ---- MODULE RawDynamicGraph ----
 
+\* Example external input. Replacing this module does not change the solver.
+\* Nodes is the shared vertex set; FullGraph is the reference graph;
+\* DynamicSteps supplies a sequence of visible dependency functions.
+\* Repeating one graph in that sequence represents static visibility.
+\*
 \* Node mapping (alias -> Alloy atom):
 \* n0 = Node$0
 \* n1 = Node$1

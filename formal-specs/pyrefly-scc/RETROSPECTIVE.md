@@ -85,5 +85,5 @@ to a violation of the specification; elsewhere, these entries connect changes
 to the contract without claiming the spec caused every fix.
 
 The remaining discovery assumption and current model gaps are summarized in
-[the audit](../AUDIT.md); detailed transition explanations live in the spec
+[the audit](AUDIT.md); detailed transition explanations live in the spec
 comments and the linked commits.
