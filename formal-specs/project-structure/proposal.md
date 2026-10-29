@@ -114,9 +114,11 @@ Useful transitions include:
 - deliver/coalesce/reorder a notification;
 - reconcile observations and publish a new analysis view.
 
-Start with atomic abstract world transitions. Later expose multi-step installations and non-atomic reads, since real processes can observe partial installation states. Fair scheduling does not turn an inherently insufficient observation into complete knowledge.
+Distinguish real-world transitions from the engine's synthetic event vocabulary. For example, an editable-install retarget may normalize to deleting the old installation contribution followed by creating the new one, rebuilding affected derived state. This does not delete either source tree or unrelated installations. Compare reconciled outcomes; if intermediate absence must be hidden, use a shared publication boundary. A specialized retarget primitive needs a concrete semantic or performance justification.
 
-The main implementation contract should be **observational equivalence with an independent reference interpretation**, not equality of internal cache or watch sets. After external changes stop, and assuming sufficient observations are eventually obtained and processing progresses, the incremental view should converge to the reference view for the declared supported profile.
+Expose multi-step installations and non-atomic reads where useful, since real processes can observe partial installation states. Fair scheduling does not turn an inherently insufficient observation into complete knowledge.
+
+Within the model, a useful consistency criterion is **observational equivalence with an independent reference interpretation**, not equality of internal cache or watch sets. After external changes stop, and assuming sufficient observations are eventually obtained and processing progresses, the incremental view should converge to the reference view for the declared supported profile. This is a planning and auditing criterion, not a claim to prove Pyrefly's implementation correct or to establish a formal model-to-code relation.
 
 That reference is a fresh static-analysis interpretation of the declared world/context/policy, not whatever an already-running CPython process currently has in `sys.modules`. Runtime module caching deliberately preserves history in ways an editor's fresh-analysis target need not preserve.
 

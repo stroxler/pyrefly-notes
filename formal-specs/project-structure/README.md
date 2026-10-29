@@ -8,6 +8,15 @@ Python and packaging references constrain the semantics; Pyrefly, pyright, ty,
 zuban, mypy, and issue reports provide examples and counterexamples. The model may
 motivate substantial implementation refactors.
 
+## Design objective
+
+Consider both the real world and a simple, modular system for handling it.
+Preserve meaningful domain distinctions, but simplify their representation at
+boundaries so the most complex core has fewer concepts and actions to handle.
+Discovery and event adapters can normalize different mechanisms into shared
+inputs and operations. They must preserve relevant context and interactions;
+normalization is not a reason to assume the underlying features are independent.
+
 ## Documents
 
 - [Modeling proposal](proposal.md): domain distinctions, observation boundaries,
@@ -32,6 +41,19 @@ are insufficient to determine it.
 Keep semantic module identity, resource identity, distribution provenance,
 configuration applicability, checking scope, and modification intent distinct.
 Tool-specific policies should be explicit parameters rather than hidden axioms.
+
+## Synthetic engine events
+
+Real-world changes need not be engine primitives. An editable-install retarget can
+be represented as deleting the old installation contribution and creating the
+new one, rebuilding its derived state rather than adding a special fast path.
+These are logical events: neither source tree is deleted, and contributions from
+other installations must remain intact.
+
+Compare the composed operation's outcomes after reconciliation. If intermediate
+absence must not be visible, the pair needs a shared publication boundary, not
+necessarily a new engine primitive. The model is a planning and auditing tool;
+this comparison is not a proof of implementation correctness.
 
 ## Validation expectations
 
