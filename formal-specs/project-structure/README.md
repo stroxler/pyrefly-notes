@@ -1,7 +1,9 @@
 # Python project structure
 
-Start with one small domain model and extend the same world in stages. This is
-planning, documentation, and auditing—not a proof of Pyrefly's implementation.
+Start with one small domain model and extend the same world in stages. The
+primary model is a precise system sketch with a rich concept vocabulary, intended
+to make code organization tractable. Checks aid exploration and auditing; proving
+correctness of either the model or Pyrefly is not its main goal.
 
 ## First milestone: flat files
 

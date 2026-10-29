@@ -1,5 +1,14 @@
 # Flat files: concept-design sketch
 
+The primary Alloy model is a system sketch more precise than Markdown: a rich
+vocabulary of concepts and their composition that makes code organization
+tractable. Its main goal is not to prove either the model or Pyrefly correct.
+Checks support exploration and auditing; they are not the organizing purpose.
+The [SCC retrospective](https://github.com/stroxler/pyrefly-notes/blob/e5e7ce781bdc458cbfa6b8cf294a9218bccd1b6b/formal-specs/pyrefly-scc/RETROSPECTIVE.md)
+is a precedent: an explicit protocol helped organize auditing and simplification,
+including unified progress state, removed bookkeeping, and clearer separation
+of local tracking from shared-cache decisions—not a proof of today's code.
+
 Following Daniel Jackson's [concept-design framing](https://groups.csail.mit.edu/sdg/pubs/2022/nfm-jackson.pdf),
 start with one concept rather than one concept per source file.
 
