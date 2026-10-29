@@ -11,3 +11,9 @@ but they are each about a project and based on a snapshot in time; in addition
 some projects will almost certainly not be implemented as described, or at all
 (for example, I have multiple docs about different approaches to determinism
 and at most one of them will be implemented on trunk).
+
+## Archived projects
+
+The existing project docs, design notes, and reproductions are archived under
+[`old/`](old/), preserving their project directory structure. New project notes
+can be added at the repository root.
