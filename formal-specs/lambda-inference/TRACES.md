@@ -399,7 +399,8 @@ holds for completed executions without a placeholder read, and
 The nested nonowner's placeholder differs from the publication. That read is a
 cycle between the two bindings, so its final answer belongs to SCC solving, not
 to lambda storage; this model does not decide it. The owner is never shown
-depending on the nonowner, so the cycle is only modeled from the owner side.
+depending on the nonowner, so the cycle is only modeled from the owner side;
+[OWNER_CYCLES.md](OWNER_CYCLES.md) sketches the full cycle by hand.
 Owner phases still condense fixpoint convergence: per-iteration wiping of
 working storage and iteration-aware publication are not modeled, and with one
 owner hint the owned body's working read always equals the eventual

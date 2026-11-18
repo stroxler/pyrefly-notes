@@ -6,7 +6,9 @@ fields describe state; primed action equations, `init`, and `always step` descri
 behavior. Temporal assertions express the contract. There is no manual time index.
 
 Read [lambda_inference.als](lambda_inference.als) for the model and
-[TRACES.md](TRACES.md) for checked executions. `witnesses.als` pins short witnesses;
+[TRACES.md](TRACES.md) for checked executions, and
+[OWNER_CYCLES.md](OWNER_CYCLES.md) for unchecked reasoning about an owner that
+depends on its nonowner. `witnesses.als` pins short witnesses;
 `expectations.json` records exact temporal scopes and required outcomes.
 
 ## Run
