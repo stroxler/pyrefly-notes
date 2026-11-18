@@ -7,10 +7,17 @@ module lambda_inference
 sig ThreadState {} // A solver state object, not an OS thread identity.
 abstract sig Hint {}
 one sig IntHint, AnyHint extends Hint {}
+// A cycle-break placeholder: a recursive read of an unfinished owner's binding.
+one sig PlaceholderHint extends Hint {}
 abstract sig Result {}
 one sig StrResult, AnyResult extends Result {}
 abstract sig Policy {}
-one sig Old, Fixed, AttemptLocal, OwnerOnly extends Policy {}
+one sig Old, Fixed, AttemptLocal, OwnerOnly, OwnerAuthoritative extends Policy {}
+// Under OwnerAuthoritative, Other is either an independent binding or a body
+// binding owned by the owner's evaluation (a comprehension or narrowing inside
+// the lambda). Other policies use only Independent.
+abstract sig OtherRole {}
+one sig Independent, OwnedBody extends OtherRole {}
 abstract sig Frame {} // Attempt continuations; inferenceFrames identifies live lambda guards.
 one sig Owner, Nonowner, Other extends Frame {}
 abstract sig Phase {}
@@ -24,6 +31,7 @@ one sig Initial, Start, ForceOwner, CachedOwner, RecursiveOwner,
 // The model has one module, lambda, parameter, and designated publication owner.
 sig Execution {
   policy: one Policy,
+  otherRole: one OtherRole,
   var phase: Frame -> one Phase,
   var thread: Frame -> lone ThreadState,
   var parent: Frame -> lone Frame,
@@ -40,8 +48,13 @@ fun ownHint[f: Frame]: lone Hint {
 fun stack[e: Execution, ts: ThreadState]: set Frame {
   ts.(e.top).*(e.parent)
 }
+// Frames that run a contextual inference of the lambda. Under
+// OwnerAuthoritative the nonowner never infers the lambda; it only reads.
+fun lambdaInferers[e: Execution]: set Frame {
+  e.policy = OwnerAuthoritative => Owner else Owner + Nonowner
+}
 fun inferenceFrames[e: Execution, ts: ThreadState]: set Frame {
-  { f: stack[e, ts] & (Owner + Nonowner) |
+  { f: stack[e, ts] & lambdaInferers[e] |
     f.(e.phase) in Demand + Suspended + Ready + Selected }
 }
 pred active[e: Execution, f: Frame] {
@@ -56,9 +69,18 @@ fun firstAvailable[a, b: lone Hint]: one Hint {
 // OwnerOnly sketches owner-authoritative inference: a nonowner attempt installs
 // no hint, demands the owner as usual, and then reads the owner's publication.
 // Owner and Other reads keep Fixed precedence.
+// OwnerAuthoritative sketches one owner doing all lambda inference: only the
+// owner and body bindings it owns read working storage. Every other reader goes
+// through the owner's binding: the publication once the owner is done, or a
+// cycle-break placeholder when it is reached inside the unfinished owner solve.
 fun choose[e: Execution, f: Frame]: one Hint {
   let working = f.(e.thread).(e.installed) |
     e.policy = Old => firstAvailable[working, e.published] else
+    e.policy = OwnerAuthoritative =>
+      ((f = Owner or (f = Other and e.otherRole = OwnedBody)) =>
+        firstAvailable[working, e.published] else
+      (Owner in f.^(e.parent) => PlaceholderHint else
+        firstAvailable[e.published, none])) else
     e.policy = AttemptLocal =>
       (f in Owner + Nonowner => ownHint[f] else
         firstAvailable[e.published, working]) else
@@ -72,7 +94,7 @@ fun choose[e: Execution, f: Frame]: one Hint {
 }
 // Which attempts install their own hint at entry.
 pred installsHint[e: Execution, f: Frame] {
-  f = Owner or (f = Nonowner and e.policy != OwnerOnly)
+  f = Owner or (f = Nonowner and e.policy not in OwnerOnly + OwnerAuthoritative)
 }
 fun result[h: Hint]: one Result { h = IntHint => StrResult else AnyResult }
 // Abstract sensitivity witness only: int -> str, Any -> Any. This is not a
@@ -99,6 +121,8 @@ pred label[e: Execution, ev: Event, f: lone Frame] {
 // Expr::Lambda uses enter_lambda_inference and set_lambda_param_type.
 pred start[e: Execution, f: Frame, ts: ThreadState] {
   f.(e.phase) = New
+  // An owned body binding is evaluated only inside its owner.
+  not (f = Other and e.otherRole = OwnedBody)
   // Top-level attempts are serialized even across distinct ThreadState objects.
   // Competing owner solves and SCC commit-reservation waits are outside scope.
   no ThreadState.(e.top)
@@ -114,20 +138,23 @@ pred start[e: Execution, f: Frame, ts: ThreadState] {
 }
 // A receiver-only/other binding can be evaluated synchronously while the owner
 // is active. Its infers=false frame does not mask an enclosing inference frame.
-pred nestedOther[e: Execution] {
-  Other.(e.phase) = New
+// Only under OwnerAuthoritative, where a nonowner is a pure reader that cannot
+// contaminate the owner's slot, may a nonowner also be reached this way.
+pred nestedReader[e: Execution, f: Frame] {
+  f = Other or (f = Nonowner and e.policy = OwnerAuthoritative)
+  f.(e.phase) = New
   Owner.(e.phase) = Demand
   active[e, Owner]
   let ts = Owner.(e.thread) | {
-    e.phase' = e.phase ++ Other -> Demand
-    e.thread' = e.thread ++ Other -> ts
-    e.parent' = e.parent ++ Other -> Owner
-    e.top' = e.top ++ ts -> Other
+    e.phase' = e.phase ++ f -> Demand
+    e.thread' = e.thread ++ f -> ts
+    e.parent' = e.parent ++ f -> Owner
+    e.top' = e.top ++ ts -> f
   }
   e.installed' = e.installed
   e.published' = e.published
   e.selected' = e.selected
-  label[e, Start, Other]
+  label[e, Start, f]
 }
 // get_idx(owner): an uncomputed owner runs on the SAME ThreadState and pauses
 // its caller. Only the new stack top may take steps until it is popped.
@@ -247,13 +274,13 @@ pred stutter[e: Execution] {
 }
 pred step[e: Execution] {
   (some f: Frame, ts: ThreadState | start[e, f, ts]) or
-  nestedOther[e] or
-  (some f: Frame | forceOwner[e, f] or demandAvailable[e, f] or
+  (some f: Frame | nestedReader[e, f] or forceOwner[e, f] or demandAvailable[e, f] or
     resume[e, f] or readParam[e, f] or finish[e, f]) or
   exitOwnerInference[e] or publishOwner[e] or stutter[e]
 }
 fact Executions {
   all e: Execution | init[e]
+  all e: Execution | e.policy != OwnerAuthoritative => e.otherRole = Independent
   always (all e: Execution | step[e])
 }
 
@@ -325,6 +352,37 @@ assert FinalNonownerScheduleIndependentOwnerOnly {
   always (all disj e, f: Execution |
     (e.policy = OwnerOnly and f.policy = OwnerOnly and
      completed[e] and completed[f]) =>
+      result[Nonowner.(e.selected)] = result[Nonowner.(f.selected)])
+}
+// OwnerAuthoritative: one answer outside the owner's own evaluation, no
+// working-state leak into readers inside it, and owned body reads do see it.
+assert SingleAnswerAuthoritative {
+  always (all e: Execution |
+    (e.policy = OwnerAuthoritative and e.event = Read and
+     e.actor in Nonowner + Other and Owner not in e.actor.^(e.parent)) =>
+      (some e.published and e.actor.(e.selected) = e.published))
+}
+assert NoWorkingLeakAuthoritative {
+  always (all e: Execution |
+    (e.policy = OwnerAuthoritative and e.event = Read and
+     e.actor in Nonowner + Other and Owner in e.actor.^(e.parent) and
+     not (e.actor = Other and e.otherRole = OwnedBody)) =>
+      e.actor.(e.selected) = PlaceholderHint)
+}
+assert OwnedBodyReadsWorkingAuthoritative {
+  always (all e: Execution |
+    (e.policy = OwnerAuthoritative and e.event = Read and e.actor = Other and
+     e.otherRole = OwnedBody) =>
+      (Owner in Other.^(e.parent) and
+       Other.(e.selected) = Other.(e.thread).(e.installed)))
+}
+// A placeholder read is a cycle, whose final answer belongs to SCC solving;
+// this comparison covers completed executions without one.
+assert FinalNonownerScheduleIndependentAuthoritative {
+  always (all disj e, f: Execution |
+    (e.policy = OwnerAuthoritative and f.policy = OwnerAuthoritative and
+     completed[e] and completed[f] and
+     PlaceholderHint not in Nonowner.(e.selected + f.selected)) =>
       result[Nonowner.(e.selected)] = result[Nonowner.(f.selected)])
 }
 pred OwnerFirst {
@@ -404,6 +462,59 @@ pred OwnerOnlySchedulesExist {
     eventually (f.event = ForceOwner and f.actor = Nonowner)
   }
 }
+// Paired OwnerAuthoritative schedules: the two top-level orders, then an
+// unrelated nonowner versus an owned body binding reached inside the owner.
+pred AuthoritativeOwnerFirst {
+  some e: Execution | {
+    OwnerThenBoth[e, OwnerAuthoritative]
+    e.otherRole = Independent
+    eventually (e.event = Start and e.actor = Nonowner and Owner.(e.phase) = Done)
+    eventually (e.event = Start and e.actor = Other and Nonowner.(e.phase) = Done)
+  }
+}
+pred AuthoritativeNonownerFirst {
+  some e: Execution | {
+    e.policy = OwnerAuthoritative
+    e.otherRole = Independent
+    after (e.event = Start and e.actor = Nonowner)
+    always no Other.(e.parent)
+    eventually completed[e]
+    eventually (e.event = ForceOwner and e.actor = Nonowner)
+  }
+}
+pred AuthoritativeNestedNonowner {
+  some e: Execution | {
+    OwnerThenBoth[e, OwnerAuthoritative]
+    e.otherRole = Independent
+    eventually (e.event = Read and e.actor = Nonowner and
+      Owner in Nonowner.^(e.parent))
+    eventually (e.event = Start and e.actor = Other and Nonowner.(e.phase) = Done)
+  }
+}
+pred AuthoritativeOwnedBody {
+  some e: Execution | {
+    e.policy = OwnerAuthoritative
+    e.otherRole = OwnedBody
+    after (e.event = Start and e.actor = Owner)
+    eventually completed[e]
+    eventually (e.event = Start and e.actor = Nonowner and Owner.(e.phase) = Done)
+  }
+}
+// Nonvacuity control: OwnerAuthoritative admits both top-level orders.
+pred AuthoritativeSchedulesExist {
+  some disj e, f: Execution | {
+    e.policy = OwnerAuthoritative
+    f.policy = OwnerAuthoritative
+    e.otherRole = Independent
+    f.otherRole = Independent
+    after (e.event = Start and e.actor = Owner and
+      f.event = Start and f.actor = Nonowner)
+    always (no Other.(e.parent) and no Other.(f.parent))
+    eventually (completed[e] and completed[f])
+    eventually (e.event = Start and e.actor = Nonowner and Owner.(e.phase) = Done)
+    eventually (f.event = ForceOwner and f.actor = Nonowner)
+  }
+}
 // Nonvacuity control: the definitional reference admits both completed orders.
 pred ReferenceSchedulesExist {
   some disj e, f: Execution | {
@@ -457,6 +568,24 @@ run OwnerOnlyNonownerFirst for 16 but exactly 1 Execution, exactly 1 ThreadState
   16..16 steps expect 1
 run OwnerOnlySchedulesExist for 16 but exactly 2 Execution, exactly 1 ThreadState,
   16..16 steps expect 1
+check SingleAnswerAuthoritative for 16 but exactly 1 Execution,
+  exactly 2 ThreadState, 16..16 steps expect 0
+check NoWorkingLeakAuthoritative for 16 but exactly 1 Execution,
+  exactly 2 ThreadState, 16..16 steps expect 0
+check OwnedBodyReadsWorkingAuthoritative for 16 but exactly 1 Execution,
+  exactly 2 ThreadState, 16..16 steps expect 0
+check FinalNonownerScheduleIndependentAuthoritative for 16 but
+  exactly 2 Execution, exactly 1 ThreadState, 16..16 steps expect 0
+run AuthoritativeOwnerFirst for 16 but exactly 1 Execution, exactly 1 ThreadState,
+  16..16 steps expect 1
+run AuthoritativeNonownerFirst for 16 but exactly 1 Execution,
+  exactly 1 ThreadState, 16..16 steps expect 1
+run AuthoritativeNestedNonowner for 16 but exactly 1 Execution,
+  exactly 1 ThreadState, 16..16 steps expect 1
+run AuthoritativeOwnedBody for 16 but exactly 1 Execution, exactly 1 ThreadState,
+  16..16 steps expect 1
+run AuthoritativeSchedulesExist for 16 but exactly 2 Execution,
+  exactly 1 ThreadState, 16..16 steps expect 1
 run OldOtherBeforeNonowner { OtherBeforeNonowner[Old] } for 16 but
   exactly 1 Execution, exactly 1 ThreadState, 16..16 steps expect 1
 run OldOtherAfterNonowner { OtherAfterNonowner[Old] } for 16 but

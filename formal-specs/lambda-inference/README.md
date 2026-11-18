@@ -46,15 +46,21 @@ published-first otherwise; `Old` always selects installed-first. `AttemptLocal`
 directly selects the expression attempt's hint: its controls are **definitional**,
 not verification of frame storage. A SAT nonvacuity control admits two completed
 reference executions with distinct owner-first/nonowner-first orders.
-`OwnerOnly` sketches owner-authoritative inference: a nonowner attempt installs
-no hint and reads the owner's publication, giving up its own contextual hint.
+`OwnerOnly` is a first sketch: a nonowner attempt installs no hint and reads
+the owner's publication, giving up its own contextual hint. `OwnerAuthoritative`
+goes further: only the owner infers the lambda, and a nonowner is a pure reader
+of the owner's binding. Inside the unfinished owner solve, an unowned reader gets
+a cycle-break placeholder and an owned body binding reads working storage.
 
 Within scope, publication authority and fixed independent reads **after
 publication, outside inference** hold. Old independent reads and fixed nonowner
 own-hint isolation fail. `OtherAlwaysPublishedFixed` fails in `RecursiveOther`,
 with both no publication and an enclosing owner inference frame. Abstract result
 schedule independence fails for `Fixed` and holds for the reference and for
-`OwnerOnly`, whose nonowner reads always equal the publication. Publication
+`OwnerOnly`, whose nonowner reads always equal the publication. Under
+`OwnerAuthoritative`, every read outside the owner's evaluation equals the
+publication, and no unowned reader inside it sees working storage; a nested
+nonowner's placeholder is a cycle left to SCC solving. Publication
 is always `IntHint` **by construction**;
 publication-value correctness and determinism are not established.
 
@@ -68,7 +74,8 @@ Owner phases condense synchronous SCC convergence, which can follow an ordinary
 self-parameter demand. SCC iterations, cold paths skipping publication, older
 driver deferred publication, competing owner solves, last-writer publication
 versus first-writer answers, repeated/overload hints, and mutable solver variables
-are omitted. So are nonowner inference nested inside Owner, Other nested inside
+are omitted. So are nonowner inference nested inside Owner (a nonowner reaches
+the owner's solve only as an `OwnerAuthoritative` pure reader), Other nested inside
 Nonowner, reads before lambda entry, narrowing/shared fragment caches, diagnostics,
 and incremental changes. Owner start merges solve start with lambda entry.
 

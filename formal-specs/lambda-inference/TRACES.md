@@ -13,8 +13,8 @@ ThreadState; it is not an attempt-local slot. Only one parameter is modeled.
 The bugs are order dependence, so each section pairs two completed executions
 with the same inputs (owner hint `int`, nonowner hint `Any`, one ThreadState)
 that differ only in solve order. `Old` is the precedence before the source
-snapshot; `Fixed` is the snapshot's precedence; `OwnerOnly` (section 4) is a
-sketch, not source behavior.
+snapshot; `Fixed` is the snapshot's precedence. `OwnerOnly` (section 4) and
+`OwnerAuthoritative` (section 5) are sketches, not source behavior.
 
 ## 1. Original bug: an independent read depends on solve order (`Old`)
 
@@ -51,9 +51,9 @@ inference on the same ThreadState.
 | 2 | 2 | RecursiveOwner | Owner | int | — | — |
 | 3 | 3 | Read | Owner | int | — | int |
 | 4 | 4 | ExitInference | Owner | int | — | — |
-| 5 | 5 | Publish | Owner | int | int | — |
-| 6 | 6 | Finish | Owner | int | int | — |
-| 7 | 7 | Start | Nonowner | Any | int | — |
+| 5 | 6 | Publish | Owner | int | int | — |
+| 6 | 7 | Finish | Owner | int | int | — |
+| 7 | 8 | Start | Nonowner | Any | int | — |
 | 8 | 9 | CachedOwner | Nonowner | Any | int | — |
 | 9 | 10 | Read | Nonowner | Any | int | Any |
 | 10 | 11 | Finish | Nonowner | Any | int | — |
@@ -109,9 +109,9 @@ same two schedules under `Fixed`.
 | 2 | 2 | RecursiveOwner | Owner | int | — | — |
 | 3 | 3 | Read | Owner | int | — | int |
 | 4 | 4 | ExitInference | Owner | int | — | — |
-| 5 | 5 | Publish | Owner | int | int | — |
-| 6 | 6 | Finish | Owner | int | int | — |
-| 7 | 7 | Start | Nonowner | Any | int | — |
+| 5 | 6 | Publish | Owner | int | int | — |
+| 6 | 7 | Finish | Owner | int | int | — |
+| 7 | 8 | Start | Nonowner | Any | int | — |
 | 8 | 9 | CachedOwner | Nonowner | Any | int | — |
 | 9 | 10 | Read | Nonowner | Any | int | Any |
 | 10 | 11 | Finish | Nonowner | Any | int | — |
@@ -145,13 +145,13 @@ all three attempts; Other reads last, outside inference.
 | 1 | 1 | Start | Owner | int | — | — |
 | 2 | 2 | RecursiveOwner | Owner | int | — | — |
 | 3 | 3 | Read | Owner | int | — | int |
-| 4 | 4 | ExitInference | Owner | int | — | — |
-| 5 | 5 | Publish | Owner | int | int | — |
-| 6 | 6 | Finish | Owner | int | int | — |
-| 7 | 7 | Start | Nonowner | Any | int | — |
-| 8 | 8 | CachedOwner | Nonowner | Any | int | — |
-| 9 | 9 | Read | Nonowner | Any | int | Any |
-| 10 | 10 | Finish | Nonowner | Any | int | — |
+| 4 | 5 | ExitInference | Owner | int | — | — |
+| 5 | 6 | Publish | Owner | int | int | — |
+| 6 | 7 | Finish | Owner | int | int | — |
+| 7 | 8 | Start | Nonowner | Any | int | — |
+| 8 | 9 | CachedOwner | Nonowner | Any | int | — |
+| 9 | 10 | Read | Nonowner | Any | int | Any |
+| 10 | 11 | Finish | Nonowner | Any | int | — |
 | 11 | 12 | Start | Other | Any | int | — |
 | 12 | 13 | CachedOwner | Other | Any | int | — |
 | 13 | 14 | Read | Other | Any | int | int |
@@ -230,10 +230,10 @@ publication. Owner and Other reads keep `Fixed` precedence.
 | --- | --- | --- | --- | --- | --- | --- |
 | 0 | 0 | Initial | — | — | — | — |
 | 1 | 1 | Start | Owner | int | — | — |
-| 2 | 3 | RecursiveOwner | Owner | int | — | — |
-| 3 | 4 | Read | Owner | int | — | int |
-| 4 | 5 | ExitInference | Owner | int | — | — |
-| 5 | 6 | Publish | Owner | int | int | — |
+| 2 | 2 | RecursiveOwner | Owner | int | — | — |
+| 3 | 3 | Read | Owner | int | — | int |
+| 4 | 4 | ExitInference | Owner | int | — | — |
+| 5 | 5 | Publish | Owner | int | int | — |
 | 6 | 7 | Finish | Owner | int | int | — |
 | 7 | 8 | Start | Nonowner | int | int | — |
 | 8 | 9 | CachedOwner | Nonowner | int | int | — |
@@ -252,8 +252,8 @@ publication. Owner and Other reads keep `Fixed` precedence.
 | 1 | 1 | Start | Nonowner | — | — | — |
 | 2 | 2 | ForceOwner | Nonowner | int | — | — |
 | 3 | 3 | RecursiveOwner | Owner | int | — | — |
-| 4 | 4 | Read | Owner | int | — | int |
-| 5 | 5 | ExitInference | Owner | int | — | — |
+| 4 | 5 | Read | Owner | int | — | int |
+| 5 | 6 | ExitInference | Owner | int | — | — |
 | 6 | 7 | Publish | Owner | int | int | — |
 | 7 | 8 | Finish | Owner | int | int | — |
 | 8 | 9 | Resume | Nonowner | int | int | — |
@@ -277,14 +277,135 @@ publication. Owner and Other reads keep `Fixed` precedence.
 `OwnerOnlySchedulesExist` produces both completed orders in one comparison, so
 the schedule-independence check is not vacuous.
 
-The cost is explicit: the nonowner never uses its own contextual hint, so this
-contract **replaces** `NonownerOwnHint` rather than satisfying it. The model has
-no nonowner inference nested inside Owner, so it does not show what a nonowner
-reads when its owner demand is recursive and nothing is published yet; that is
-where an owner-authoritative design needs its own fallback rule. Competing
-owner solves remain excluded.
+The nonowner never uses its own contextual hint, so this contract **replaces**
+`NonownerOwnHint` rather than satisfying it. The nonowner still runs a lambda
+inference frame, and the sketch never places it inside the owner's solve;
+section 5 removes both limits.
 
-## 5. Recursive Other read: availability boundary
+## 5. Sketch: one owner does all lambda inference (`OwnerAuthoritative`)
+
+Only the owner infers the lambda. A nonowner is a pure reader of the owner's
+binding, like Other: it installs nothing and runs no inference frame. Readers
+outside the owner's evaluation get the publication. A reader reached **inside**
+the unfinished owner solve is a dependency cycle and gets a cycle-break
+`placeholder`, never working storage, unless it is a body binding the owner's
+evaluation owns (`OwnedBody`, e.g. a comprehension in the lambda body), which
+reads working storage directly. A nonowner may be reached inside the owner's
+solve only under this policy, since a pure reader cannot contaminate the
+owner's slot.
+
+### Top-level orders
+
+Commands: `run AuthoritativeOwnerFirst` and `run AuthoritativeNonownerFirst`.
+
+#### Owner first
+
+| Step | Native state | Action | Reader/attempt | Working | Published | Read result |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | 0 | Initial | — | — | — | — |
+| 1 | 1 | Start | Owner | int | — | — |
+| 2 | 3 | RecursiveOwner | Owner | int | — | — |
+| 3 | 4 | Read | Owner | int | — | int |
+| 4 | 5 | ExitInference | Owner | int | — | — |
+| 5 | 6 | Publish | Owner | int | int | — |
+| 6 | 7 | Finish | Owner | int | int | — |
+| 7 | 8 | Start | Nonowner | int | int | — |
+| 8 | 9 | CachedOwner | Nonowner | int | int | — |
+| 9 | 10 | Read | Nonowner | int | int | int |
+| 10 | 11 | Finish | Nonowner | int | int | — |
+| 11 | 12 | Start | Other | int | int | — |
+| 12 | 13 | CachedOwner | Other | int | int | — |
+| 13 | 14 | Read | Other | int | int | int |
+| 14 | 15 | Finish | Other | int | int | — |
+
+#### Nonowner first
+
+| Step | Native state | Action | Reader/attempt | Working | Published | Read result |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | 0 | Initial | — | — | — | — |
+| 1 | 1 | Start | Nonowner | — | — | — |
+| 2 | 2 | ForceOwner | Nonowner | int | — | — |
+| 3 | 4 | RecursiveOwner | Owner | int | — | — |
+| 4 | 5 | Read | Owner | int | — | int |
+| 5 | 6 | ExitInference | Owner | int | — | — |
+| 6 | 7 | Publish | Owner | int | int | — |
+| 7 | 8 | Finish | Owner | int | int | — |
+| 8 | 9 | Resume | Nonowner | int | int | — |
+| 9 | 10 | Read | Nonowner | int | int | int |
+| 10 | 11 | Finish | Nonowner | int | int | — |
+| 11 | 12 | Start | Other | int | int | — |
+| 12 | 13 | CachedOwner | Other | int | int | — |
+| 13 | 14 | Read | Other | int | int | int |
+| 14 | 15 | Finish | Other | int | int | — |
+
+### Readers inside the owner's solve
+
+Commands: `run AuthoritativeNestedNonowner` and `run AuthoritativeOwnedBody`.
+Both start the owner first and reach a reader while the owner is in demand.
+
+#### Unrelated nonowner inside the owner
+
+| Step | Native state | Action | Reader/attempt | Working | Published | Read result |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | 0 | Initial | — | — | — | — |
+| 1 | 1 | Start | Owner | int | — | — |
+| 2 | 3 | Start | Nonowner | int | — | — |
+| 3 | 4 | RecursiveOwner | Nonowner | int | — | — |
+| 4 | 5 | Read | Nonowner | int | — | placeholder |
+| 5 | 6 | Finish | Nonowner | int | — | — |
+| 6 | 7 | RecursiveOwner | Owner | int | — | — |
+| 7 | 8 | Read | Owner | int | — | int |
+| 8 | 9 | ExitInference | Owner | int | — | — |
+| 9 | 10 | Publish | Owner | int | int | — |
+| 10 | 11 | Finish | Owner | int | int | — |
+| 11 | 12 | Start | Other | int | int | — |
+| 12 | 13 | CachedOwner | Other | int | int | — |
+| 13 | 14 | Read | Other | int | int | int |
+| 14 | 15 | Finish | Other | int | int | — |
+
+#### Owned body binding inside the owner
+
+| Step | Native state | Action | Reader/attempt | Working | Published | Read result |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | 0 | Initial | — | — | — | — |
+| 1 | 1 | Start | Owner | int | — | — |
+| 2 | 3 | Start | Other | int | — | — |
+| 3 | 4 | RecursiveOwner | Other | int | — | — |
+| 4 | 5 | Read | Other | int | — | int |
+| 5 | 6 | Finish | Other | int | — | — |
+| 6 | 7 | RecursiveOwner | Owner | int | — | — |
+| 7 | 8 | Read | Owner | int | — | int |
+| 8 | 9 | ExitInference | Owner | int | — | — |
+| 9 | 10 | Publish | Owner | int | int | — |
+| 10 | 11 | Finish | Owner | int | int | — |
+| 11 | 12 | Start | Nonowner | int | int | — |
+| 12 | 13 | CachedOwner | Nonowner | int | int | — |
+| 13 | 14 | Read | Nonowner | int | int | int |
+| 14 | 15 | Finish | Nonowner | int | int | — |
+
+| Completed result | Owner first | Nonowner first | Nested nonowner | Owned body |
+| --- | --- | --- | --- | --- |
+| Owner publication | int | int | int | int |
+| Nonowner parameter read | int | int | **placeholder** | int |
+| Other parameter read | int | int | int | int (working) |
+
+`SingleAnswerAuthoritative` (every Nonowner or Other read outside the owner's
+evaluation equals the publication), `NoWorkingLeakAuthoritative` (an unowned
+reader inside it gets the placeholder), and `OwnedBodyReadsWorkingAuthoritative`
+have no counterexample within scope. `FinalNonownerScheduleIndependentAuthoritative`
+holds for completed executions without a placeholder read, and
+`AuthoritativeSchedulesExist` shows both top-level orders in one comparison.
+
+The nested nonowner's placeholder differs from the publication. That read is a
+cycle between the two bindings, so its final answer belongs to SCC solving, not
+to lambda storage; this model does not decide it. The owner is never shown
+depending on the nonowner, so the cycle is only modeled from the owner side.
+Owner phases still condense fixpoint convergence: per-iteration wiping of
+working storage and iteration-aware publication are not modeled, and with one
+owner hint the owned body's working read always equals the eventual
+publication.
+
+## 6. Recursive Other read: availability boundary
 
 Command: `run RecursiveOther`. It has **5 states**, loops at state **4**, and
 contains **4 meaningful transitions**; at most **4 states** is UNSAT.
@@ -310,7 +431,7 @@ Main commands, including every paired schedule above, use an exact **16-state
 native lasso** ending in a final-state loop; tables omit unchanged stutters.
 Stutter padding admits shorter prefixes. Witness commands retain explicit ranged
 bounds; the runner validates every native JSON state and XML trace/loop length.
-The closing self-loop is not another meaningful inference action. All **29**
+The closing self-loop is not another meaningful inference action. All **38**
 expected SAT/UNSAT outcomes and **14** runner controls pass.
 
 These results concern publication **authority** and read precedence only.
