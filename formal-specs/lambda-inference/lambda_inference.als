@@ -319,6 +319,26 @@ pred NonownerFirst {
     eventually (Nonowner.(e.phase) = Done and Nonowner.(e.selected) = IntHint)
   }
 }
+// Paired schedules for the independent read: the owner completes first, then
+// Other reads either before or after the nonowner's inference on that state.
+pred OwnerThenBoth[e: Execution, p: Policy] {
+  e.policy = p
+  after (e.event = Start and e.actor = Owner)
+  always no Other.(e.parent)
+  eventually completed[e]
+}
+pred OtherBeforeNonowner[p: Policy] {
+  some e: Execution | {
+    OwnerThenBoth[e, p]
+    eventually (e.event = Start and e.actor = Other and Nonowner.(e.phase) = New)
+  }
+}
+pred OtherAfterNonowner[p: Policy] {
+  some e: Execution | {
+    OwnerThenBoth[e, p]
+    eventually (e.event = Start and e.actor = Other and Nonowner.(e.phase) = Done)
+  }
+}
 pred OtherOnFreshThreadState {
   eventually (some e: Execution |
     e.policy = Fixed and e.event = Read and e.actor = Other and
@@ -366,6 +386,14 @@ run OwnerFirst for 16 but exactly 1 Execution, exactly 1 ThreadState,
   16..16 steps expect 1
 run NonownerFirst for 16 but exactly 1 Execution, exactly 1 ThreadState,
   16..16 steps expect 1
+run OldOtherBeforeNonowner { OtherBeforeNonowner[Old] } for 16 but
+  exactly 1 Execution, exactly 1 ThreadState, 16..16 steps expect 1
+run OldOtherAfterNonowner { OtherAfterNonowner[Old] } for 16 but
+  exactly 1 Execution, exactly 1 ThreadState, 16..16 steps expect 1
+run FixedOtherBeforeNonowner { OtherBeforeNonowner[Fixed] } for 16 but
+  exactly 1 Execution, exactly 1 ThreadState, 16..16 steps expect 1
+run FixedOtherAfterNonowner { OtherAfterNonowner[Fixed] } for 16 but
+  exactly 1 Execution, exactly 1 ThreadState, 16..16 steps expect 1
 run OtherOnFreshThreadState for 16 but exactly 1 Execution, exactly 2 ThreadState,
   16..16 steps expect 1
 run ReferenceSchedulesExist for 16 but exactly 2 Execution, exactly 1 ThreadState,

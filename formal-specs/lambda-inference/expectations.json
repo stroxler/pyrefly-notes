@@ -11,6 +11,10 @@
     "FinalNonownerScheduleIndependentReference": {"kind": "check", "sat": false, "min_states": 16, "max_states": 16, "executions": 2, "threads": 1},
     "OwnerFirst": {"kind": "run", "sat": true, "min_states": 16, "max_states": 16, "executions": 1, "threads": 1},
     "NonownerFirst": {"kind": "run", "sat": true, "min_states": 16, "max_states": 16, "executions": 1, "threads": 1},
+    "OldOtherBeforeNonowner": {"kind": "run", "sat": true, "min_states": 16, "max_states": 16, "executions": 1, "threads": 1},
+    "OldOtherAfterNonowner": {"kind": "run", "sat": true, "min_states": 16, "max_states": 16, "executions": 1, "threads": 1},
+    "FixedOtherBeforeNonowner": {"kind": "run", "sat": true, "min_states": 16, "max_states": 16, "executions": 1, "threads": 1},
+    "FixedOtherAfterNonowner": {"kind": "run", "sat": true, "min_states": 16, "max_states": 16, "executions": 1, "threads": 1},
     "OtherOnFreshThreadState": {"kind": "run", "sat": true, "min_states": 16, "max_states": 16, "executions": 1, "threads": 2},
     "ReferenceSchedulesExist": {"kind": "run", "sat": true, "min_states": 16, "max_states": 16, "executions": 2, "threads": 1}
   },
@@ -20,7 +24,6 @@
     "OldReadLeak": {"kind": "run", "sat": true, "min_states": 1, "max_states": 14, "executions": 1, "threads": 1},
     "OldReadLeakTooShort": {"kind": "run", "sat": false, "min_states": 1, "max_states": 13, "executions": 1, "threads": 1},
     "RecursiveOther": {"kind": "run", "sat": true, "min_states": 1, "max_states": 5, "executions": 1, "threads": 1},
-    "RecursiveOtherTooShort": {"kind": "run", "sat": false, "min_states": 1, "max_states": 4, "executions": 1, "threads": 1},
-    "FixedReadAfterNonowner": {"kind": "run", "sat": true, "min_states": 1, "max_states": 14, "executions": 1, "threads": 1}
+    "RecursiveOtherTooShort": {"kind": "run", "sat": false, "min_states": 1, "max_states": 4, "executions": 1, "threads": 1}
   }
 }

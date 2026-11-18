@@ -23,17 +23,6 @@ pred OldReadLeak {
     (Owner + Nonowner).(e.phase) = Done
   })
 }
-pred FixedReadAfterNonowner {
-  eventually (some e: Execution | {
-    e.policy = Fixed
-    e.event = Read
-    e.actor = Other
-    Other.(e.selected) = IntHint
-    e.published = IntHint
-    Other.(e.thread).(e.installed) = AnyHint
-    (Owner + Nonowner).(e.phase) = Done
-  })
-}
 pred RecursiveOther {
   eventually (some e: Execution | {
     e.policy = Fixed
@@ -56,5 +45,3 @@ run RecursiveOther for 5 but exactly 1 Execution, exactly 1 ThreadState,
   1..5 steps expect 1
 run RecursiveOtherTooShort { RecursiveOther } for 4 but exactly 1 Execution,
   exactly 1 ThreadState, 1..4 steps expect 0
-run FixedReadAfterNonowner for 14 but exactly 1 Execution, exactly 1 ThreadState,
-  1..14 steps expect 1

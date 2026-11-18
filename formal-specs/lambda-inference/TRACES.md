@@ -1,6 +1,6 @@
 # Checked lambda-inference traces
 
-These tables come from actual **native Alloy 6** instances of the named predicates,
+These tables come from actual **native Alloy 6** instances of the named commands,
 not imagined same-thread interleavings. `Step` removes unchanged stutters;
 `Native state` preserves the checker's original position. `int` and `Any` are
 aliases for `IntHint` and `AnyHint`. A dash means no installed/published/read value.
@@ -10,41 +10,18 @@ The roles are **Owner** (expression inference and publication authority),
 independent parameter read). `Working` is the shared slot in this execution's
 ThreadState; it is not an attempt-local slot. Only one parameter is modeled.
 
-## 1. Minimum nested overwrite
+The bugs are order dependence, so each section pairs two completed executions
+with the same inputs (owner hint `int`, nonowner hint `Any`, one ThreadState)
+that differ only in solve order. `Old` is the precedence before the source
+snapshot; `Fixed` is the snapshot's precedence.
 
-Command: `run NestedOverwrite` in `witnesses.als`. The checked lasso has **10 states**,
-loops at state **9**, and contains **9 meaningful transitions**. The ranged
-`NestedOverwriteTooShort` command finds no witness with at most **9 states**.
+## 1. Original bug: an independent read depends on solve order (`Old`)
 
-| Step | Native state | Action | Reader/attempt | Nonowner own hint | Working | Published | Read result |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 0 | 0 | Initial | — | — | — | — | — |
-| 1 | 1 | Start | Nonowner | Any | Any | — | — |
-| 2 | 2 | ForceOwner | Nonowner | Any | int | — | — |
-| 3 | 3 | RecursiveOwner | Owner | Any | int | — | — |
-| 4 | 4 | Read | Owner | Any | int | — | int |
-| 5 | 5 | ExitInference | Owner | Any | int | — | — |
-| 6 | 6 | Publish | Owner | Any | int | int | — |
-| 7 | 7 | Finish | Owner | Any | int | int | — |
-| 8 | 8 | Resume | Nonowner | Any | int | int | — |
-| 9 | 9 | Read | Nonowner | Any | int | int | int |
+Commands: `run OldOtherBeforeNonowner` and `run OldOtherAfterNonowner`. The owner
+completes first in both; Other then reads either before or after the nonowner's
+inference on the same ThreadState.
 
-The nonowner chooses `Any` at entry. Its parameter read first demands the owner,
-which runs synchronously on the **same ThreadState**, overwriting the working
-slot with `int`. The outer attempt is suspended; it cannot execute arbitrary
-steps while the nested owner is active. The owner exits its inference guard,
-publishes, and returns without restoring the slot. The resumed nonowner then
-reads `int`, not its own hint. `NonownerOwnHintFixed` finds this local-contract
-failure within the main scope.
-
-## 2. Old independent-read leak and fixed contrast
-
-Commands: `run OldReadLeak` and `run FixedReadAfterNonowner`. Both generated
-witnesses have **14 states**, with a final-state self-loop. `OldReadLeakTooShort`
-is UNSAT at at most **13 states**, so the old leak needs **13 meaningful
-transitions** in this model. No shortest-bound claim is made for the fixed contrast.
-
-The old witness is:
+### Other before nonowner
 
 | Step | Native state | Action | Reader/attempt | Working | Published | Read result |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -53,38 +30,113 @@ The old witness is:
 | 2 | 2 | RecursiveOwner | Owner | int | — | — |
 | 3 | 3 | Read | Owner | int | — | int |
 | 4 | 4 | ExitInference | Owner | int | — | — |
-| 5 | 5 | Publish | Owner | int | int | — |
-| 6 | 6 | Finish | Owner | int | int | — |
-| 7 | 7 | Start | Nonowner | Any | int | — |
-| 8 | 8 | CachedOwner | Nonowner | Any | int | — |
-| 9 | 9 | Read | Nonowner | Any | int | Any |
-| 10 | 10 | Finish | Nonowner | Any | int | — |
-| 11 | 11 | Start | Other | Any | int | — |
-| 12 | 12 | CachedOwner | Other | Any | int | — |
-| 13 | 13 | Read | Other | Any | int | Any |
+| 5 | 6 | Publish | Owner | int | int | — |
+| 6 | 7 | Finish | Owner | int | int | — |
+| 7 | 8 | Start | Other | int | int | — |
+| 8 | 9 | CachedOwner | Other | int | int | — |
+| 9 | 10 | Read | Other | int | int | int |
+| 10 | 11 | Finish | Other | int | int | — |
+| 11 | 12 | Start | Nonowner | Any | int | — |
+| 12 | 13 | CachedOwner | Nonowner | Any | int | — |
+| 13 | 14 | Read | Nonowner | Any | int | Any |
+| 14 | 15 | Finish | Nonowner | Any | int | — |
 
-The fixed contrast is independently generated with the same observed read inputs:
-owner and nonowner are complete, no inference frame is active, working storage
-contains the nonowner's `Any`, and the owner publication is `int`.
+### Other after nonowner
 
-| Native witness | Working | Published | Independent read |
-| --- | --- | --- | --- |
-| `OldReadLeak` | Any | int | Any |
-| `FixedReadAfterNonowner` | Any | int | int |
+| Step | Native state | Action | Reader/attempt | Working | Published | Read result |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | 0 | Initial | — | — | — | — |
+| 1 | 1 | Start | Owner | int | — | — |
+| 2 | 2 | RecursiveOwner | Owner | int | — | — |
+| 3 | 3 | Read | Owner | int | — | int |
+| 4 | 4 | ExitInference | Owner | int | — | — |
+| 5 | 6 | Publish | Owner | int | int | — |
+| 6 | 7 | Finish | Owner | int | int | — |
+| 7 | 8 | Start | Nonowner | Any | int | — |
+| 8 | 9 | CachedOwner | Nonowner | Any | int | — |
+| 9 | 10 | Read | Nonowner | Any | int | Any |
+| 10 | 11 | Finish | Nonowner | Any | int | — |
+| 11 | 12 | Start | Other | Any | int | — |
+| 12 | 13 | CachedOwner | Other | Any | int | — |
+| 13 | 14 | Read | Other | Any | int | Any |
+| 14 | 15 | Finish | Other | Any | int | — |
 
-Thus `IndependentAfterPublicationOld` has a counterexample, while
-`IndependentAfterPublicationFixed` has none within the checked scope. This
-establishes the modeled precedence rule, not correctness of the published value.
+| Completed result | Other before nonowner | Other after nonowner |
+| --- | --- | --- |
+| Owner publication | int | int |
+| Working slot at Other's read | int | Any |
+| Other parameter read | int | **Any** |
 
-## 3. Two completed same-input schedules
+`Old` always prefers the working slot. The nonowner's inference leaves `Any`
+there, and nothing restores it, so a later independent read sees whichever
+inference ran last on that ThreadState rather than the publication.
+`IndependentAfterPublicationOld` has a counterexample. The ranged `OldReadLeak`
+witness shows the after-nonowner leak needs **13 meaningful transitions**
+(`OldReadLeakTooShort` is UNSAT at at most **13 states**).
 
-Both following witnesses use `Fixed`, one ThreadState, owner hint `int`, nonowner
-hint `Any`, and an Other read outside inference. All three attempts complete.
-The commands pin distinct initial attempts and exclude a nested Other read for
-these displayed schedules. Each actual lasso has **16 native states**, ending in
-a final-state loop; the table omits one unchanged stutter.
+## 2. Partial fix: the independent read no longer depends on order (`Fixed`)
 
-### Owner first: `run OwnerFirst`
+Commands: `run FixedOtherBeforeNonowner` and `run FixedOtherAfterNonowner`, the
+same two schedules under `Fixed`.
+
+### Other before nonowner
+
+| Step | Native state | Action | Reader/attempt | Working | Published | Read result |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | 0 | Initial | — | — | — | — |
+| 1 | 1 | Start | Owner | int | — | — |
+| 2 | 2 | RecursiveOwner | Owner | int | — | — |
+| 3 | 3 | Read | Owner | int | — | int |
+| 4 | 4 | ExitInference | Owner | int | — | — |
+| 5 | 6 | Publish | Owner | int | int | — |
+| 6 | 7 | Finish | Owner | int | int | — |
+| 7 | 8 | Start | Other | int | int | — |
+| 8 | 9 | CachedOwner | Other | int | int | — |
+| 9 | 10 | Read | Other | int | int | int |
+| 10 | 11 | Finish | Other | int | int | — |
+| 11 | 12 | Start | Nonowner | Any | int | — |
+| 12 | 13 | CachedOwner | Nonowner | Any | int | — |
+| 13 | 14 | Read | Nonowner | Any | int | Any |
+| 14 | 15 | Finish | Nonowner | Any | int | — |
+
+### Other after nonowner
+
+| Step | Native state | Action | Reader/attempt | Working | Published | Read result |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | 0 | Initial | — | — | — | — |
+| 1 | 1 | Start | Owner | int | — | — |
+| 2 | 2 | RecursiveOwner | Owner | int | — | — |
+| 3 | 3 | Read | Owner | int | — | int |
+| 4 | 4 | ExitInference | Owner | int | — | — |
+| 5 | 6 | Publish | Owner | int | int | — |
+| 6 | 7 | Finish | Owner | int | int | — |
+| 7 | 8 | Start | Nonowner | Any | int | — |
+| 8 | 9 | CachedOwner | Nonowner | Any | int | — |
+| 9 | 10 | Read | Nonowner | Any | int | Any |
+| 10 | 11 | Finish | Nonowner | Any | int | — |
+| 11 | 12 | Start | Other | Any | int | — |
+| 12 | 13 | CachedOwner | Other | Any | int | — |
+| 13 | 14 | Read | Other | Any | int | int |
+| 14 | 15 | Finish | Other | Any | int | — |
+
+| Completed result | Other before nonowner | Other after nonowner |
+| --- | --- | --- |
+| Owner publication | int | int |
+| Working slot at Other's read | int | Any |
+| Other parameter read | int | int |
+
+Outside any lambda inference frame, `Fixed` prefers the publication, so the
+leftover `Any` no longer reaches Other. `IndependentAfterPublicationFixed` has
+no counterexample within the checked scope. This establishes the modeled
+precedence rule, not correctness of the published value. In both schedules the
+owner ran first, so the nonowner read its own `Any`; section 3 varies that order.
+
+## 3. Remaining bug: a nonowner's own read still depends on order (`Fixed`)
+
+Commands: `run OwnerFirst` and `run NonownerFirst`. Both use `Fixed` and complete
+all three attempts; Other reads last, outside inference.
+
+### Owner first
 
 | Step | Native state | Action | Reader/attempt | Working | Published | Read result |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -104,7 +156,7 @@ a final-state loop; the table omits one unchanged stutter.
 | 13 | 14 | Read | Other | Any | int | int |
 | 14 | 15 | Finish | Other | Any | int | — |
 
-### Nonowner first: `run NonownerFirst`
+### Nonowner first
 
 | Step | Native state | Action | Reader/attempt | Working | Published | Read result |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -128,9 +180,23 @@ a final-state loop; the table omits one unchanged stutter.
 | --- | --- | --- |
 | Owner parameter read | int | int |
 | Owner publication | int | int |
-| Nonowner parameter read | Any | int |
+| Nonowner parameter read | Any | **int** |
 | Other parameter read | int | int |
 | Abstract nonowner result | AnyResult | StrResult |
+
+In the nonowner-first schedule, the nonowner installs `Any` at entry. Its
+parameter read first demands the owner, which runs synchronously on the **same
+ThreadState** and overwrites the working slot with `int`. The outer attempt is
+suspended; it cannot execute steps while the nested owner is active. The owner
+exits its inference guard, publishes, and returns without restoring the slot.
+The resumed nonowner is still inside its own inference frame, so `Fixed` prefers
+the working slot and reads `int`, not its own hint. In the owner-first schedule
+the owner is already done, nothing overwrites the slot, and the nonowner reads
+`Any`.
+
+`NonownerOwnHintFixed` finds the local failure within the main scope. The ranged
+`NestedOverwrite` witness needs **9 meaningful transitions**
+(`NestedOverwriteTooShort` is UNSAT at at most **9 states**).
 
 The result function deliberately maps `int -> StrResult` and `Any -> AnyResult`.
 `FinalNonownerScheduleIndependentFixed` self-composes two executions under one
@@ -138,9 +204,11 @@ native temporal clock and finds a difference once **both** are complete. Their
 local step/stutter choices remain independent.
 
 This is **abstract sensitivity**, not proof of an order-dependent final `C.x`
-for a Python fixture. The source observation distinguishes implicit and explicit
-`Any`; additional inference attempts and final getter handling can erase an
-intermediate effect. No model-to-code refinement is supplied.
+for a Python fixture. `Old` has the same nonowner behavior, so this is a
+remaining gap rather than a regression. The source observation distinguishes
+implicit and explicit `Any`; additional inference attempts and final getter
+handling can erase an intermediate effect. No model-to-code refinement is
+supplied.
 
 The corresponding reference assertion has no counterexample within scope.
 `ReferenceSchedulesExist` also produces two completed reference executions with
@@ -170,10 +238,11 @@ contract has explicit availability and no-enclosing-inference preconditions.
 
 ## Bounds and limits
 
-Main commands use an exact **16-state native lasso**, with unchanged-state stutter
-padding admitting shorter prefixes. Witness commands retain explicit ranged
+Main commands, including every paired schedule above, use an exact **16-state
+native lasso** ending in a final-state loop; tables omit unchanged stutters.
+Stutter padding admits shorter prefixes. Witness commands retain explicit ranged
 bounds; the runner validates every native JSON state and XML trace/loop length.
-The closing self-loop is not another meaningful inference action. All **20**
+The closing self-loop is not another meaningful inference action. All **23**
 expected SAT/UNSAT outcomes and **14** runner controls pass.
 
 These results concern publication **authority** and read precedence only.
