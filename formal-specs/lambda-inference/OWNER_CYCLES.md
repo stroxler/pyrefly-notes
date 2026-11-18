@@ -70,7 +70,11 @@ At `2d1d8c3`:
   `commit_final_answers` publishes no lambda types. The map is last writer
   wins and is never rolled back (condition 3).
 - `ThreadState::lambda_param_types` has no reset at iteration boundaries; only
-  speculative calls snapshot and restore it (`alt/call.rs`) (condition 1).
+  speculative calls snapshot and restore it (`alt/call.rs`). Each lambda
+  inference does overwrite every parameter (hint, default, or implicit `Any`)
+  and invalidates frame-scoped narrowed reads, so a changed hint replaces the
+  slot once an iteration reaches the lambda. Until then, and in an iteration
+  that never reaches it, the previous value remains (condition 1).
 
 ## Ordinary SCC risks
 
