@@ -15,8 +15,9 @@ and at most one of them will be implemented on trunk).
 ## Formal specifications
 
 Executable models, assumptions, audits, and reproduction instructions live under
-[`formal-specs/`](formal-specs/). The first collection covers
-[Pyrefly SCC solving](formal-specs/pyrefly-scc/).
+[`formal-specs/`](formal-specs/). Collections cover
+[Pyrefly SCC solving](formal-specs/pyrefly-scc/) and
+[lambda inference contexts](formal-specs/lambda-inference/).
 
 ## Archived projects
 

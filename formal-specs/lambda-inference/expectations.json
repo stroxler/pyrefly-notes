@@ -1,0 +1,26 @@
+{
+  "lambda_inference.als": {
+    "OnlyOwnerPublishes": {"kind": "check", "sat": false, "min_states": 16, "max_states": 16, "executions": 1, "threads": 2},
+    "StackDiscipline": {"kind": "check", "sat": false, "min_states": 16, "max_states": 16, "executions": 1, "threads": 2},
+    "IndependentAfterPublicationFixed": {"kind": "check", "sat": false, "min_states": 16, "max_states": 16, "executions": 1, "threads": 2},
+    "IndependentAfterPublicationOld": {"kind": "check", "sat": true, "min_states": 16, "max_states": 16, "executions": 1, "threads": 1},
+    "NonownerOwnHintFixed": {"kind": "check", "sat": true, "min_states": 16, "max_states": 16, "executions": 1, "threads": 1},
+    "ExpressionOwnHintReference": {"kind": "check", "sat": false, "min_states": 16, "max_states": 16, "executions": 1, "threads": 2},
+    "OtherAlwaysPublishedFixed": {"kind": "check", "sat": true, "min_states": 16, "max_states": 16, "executions": 1, "threads": 1},
+    "FinalNonownerScheduleIndependentFixed": {"kind": "check", "sat": true, "min_states": 16, "max_states": 16, "executions": 2, "threads": 1},
+    "FinalNonownerScheduleIndependentReference": {"kind": "check", "sat": false, "min_states": 16, "max_states": 16, "executions": 2, "threads": 1},
+    "OwnerFirst": {"kind": "run", "sat": true, "min_states": 16, "max_states": 16, "executions": 1, "threads": 1},
+    "NonownerFirst": {"kind": "run", "sat": true, "min_states": 16, "max_states": 16, "executions": 1, "threads": 1},
+    "OtherOnFreshThreadState": {"kind": "run", "sat": true, "min_states": 16, "max_states": 16, "executions": 1, "threads": 2},
+    "ReferenceSchedulesExist": {"kind": "run", "sat": true, "min_states": 16, "max_states": 16, "executions": 2, "threads": 1}
+  },
+  "witnesses.als": {
+    "NestedOverwrite": {"kind": "run", "sat": true, "min_states": 1, "max_states": 10, "executions": 1, "threads": 1},
+    "NestedOverwriteTooShort": {"kind": "run", "sat": false, "min_states": 1, "max_states": 9, "executions": 1, "threads": 1},
+    "OldReadLeak": {"kind": "run", "sat": true, "min_states": 1, "max_states": 14, "executions": 1, "threads": 1},
+    "OldReadLeakTooShort": {"kind": "run", "sat": false, "min_states": 1, "max_states": 13, "executions": 1, "threads": 1},
+    "RecursiveOther": {"kind": "run", "sat": true, "min_states": 1, "max_states": 5, "executions": 1, "threads": 1},
+    "RecursiveOtherTooShort": {"kind": "run", "sat": false, "min_states": 1, "max_states": 4, "executions": 1, "threads": 1},
+    "FixedReadAfterNonowner": {"kind": "run", "sat": true, "min_states": 1, "max_states": 14, "executions": 1, "threads": 1}
+  }
+}
