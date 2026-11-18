@@ -46,12 +46,15 @@ published-first otherwise; `Old` always selects installed-first. `AttemptLocal`
 directly selects the expression attempt's hint: its controls are **definitional**,
 not verification of frame storage. A SAT nonvacuity control admits two completed
 reference executions with distinct owner-first/nonowner-first orders.
+`OwnerOnly` sketches owner-authoritative inference: a nonowner attempt installs
+no hint and reads the owner's publication, giving up its own contextual hint.
 
 Within scope, publication authority and fixed independent reads **after
 publication, outside inference** hold. Old independent reads and fixed nonowner
 own-hint isolation fail. `OtherAlwaysPublishedFixed` fails in `RecursiveOther`,
 with both no publication and an enclosing owner inference frame. Abstract result
-schedule independence fails for `Fixed` and holds for the reference. Publication
+schedule independence fails for `Fixed` and holds for the reference and for
+`OwnerOnly`, whose nonowner reads always equal the publication. Publication
 is always `IntHint` **by construction**;
 publication-value correctness and determinism are not established.
 

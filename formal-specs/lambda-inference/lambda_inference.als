@@ -10,7 +10,7 @@ one sig IntHint, AnyHint extends Hint {}
 abstract sig Result {}
 one sig StrResult, AnyResult extends Result {}
 abstract sig Policy {}
-one sig Old, Fixed, AttemptLocal extends Policy {}
+one sig Old, Fixed, AttemptLocal, OwnerOnly extends Policy {}
 abstract sig Frame {} // Attempt continuations; inferenceFrames identifies live lambda guards.
 one sig Owner, Nonowner, Other extends Frame {}
 abstract sig Phase {}
@@ -53,17 +53,26 @@ fun firstAvailable[a, b: lone Hint]: one Hint {
 }
 // AttemptLocal is a definitional contract: choose returns the attempt's hint
 // directly. Its controls do not verify a frame-storage implementation.
+// OwnerOnly sketches owner-authoritative inference: a nonowner attempt installs
+// no hint, demands the owner as usual, and then reads the owner's publication.
+// Owner and Other reads keep Fixed precedence.
 fun choose[e: Execution, f: Frame]: one Hint {
   let working = f.(e.thread).(e.installed) |
     e.policy = Old => firstAvailable[working, e.published] else
     e.policy = AttemptLocal =>
       (f in Owner + Nonowner => ownHint[f] else
         firstAvailable[e.published, working]) else
+    (e.policy = OwnerOnly and f = Nonowner) =>
+      firstAvailable[e.published, working] else
     // alt/answers_solver.rs::resolve_lambda_param_type tests ANY enclosing
     // infers=true frame, not the identity or read intent of the current caller.
     (some inferenceFrames[e, f.(e.thread)] =>
       firstAvailable[working, e.published] else
       firstAvailable[e.published, working])
+}
+// Which attempts install their own hint at entry.
+pred installsHint[e: Execution, f: Frame] {
+  f = Owner or (f = Nonowner and e.policy != OwnerOnly)
 }
 fun result[h: Hint]: one Result { h = IntHint => StrResult else AnyResult }
 // Abstract sensitivity witness only: int -> str, Any -> Any. This is not a
@@ -97,8 +106,8 @@ pred start[e: Execution, f: Frame, ts: ThreadState] {
   e.thread' = e.thread ++ f -> ts
   e.parent' = e.parent
   e.top' = e.top ++ ts -> f
-  e.installed' = (f = Other => e.installed else
-    e.installed ++ ts -> ownHint[f])
+  e.installed' = (installsHint[e, f] =>
+    e.installed ++ ts -> ownHint[f] else e.installed)
   e.published' = e.published
   e.selected' = e.selected
   label[e, Start, f]
@@ -299,6 +308,25 @@ assert FinalNonownerScheduleIndependentReference {
      completed[e] and completed[f]) =>
       result[Nonowner.(e.selected)] = result[Nonowner.(f.selected)])
 }
+// OwnerOnly: the nonowner reads the publication, so its result cannot depend on
+// order. This deliberately gives up the nonowner's own contextual hint.
+assert NonownerReadsPublicationOwnerOnly {
+  always (all e: Execution |
+    (e.policy = OwnerOnly and e.event = Read and e.actor = Nonowner) =>
+      (some e.published and Nonowner.(e.selected) = e.published))
+}
+assert IndependentAfterPublicationOwnerOnly {
+  always (all e: Execution |
+    (e.policy = OwnerOnly and e.event = Read and e.actor = Other and
+     no inferenceFrames[e, Other.(e.thread)] and some e.published) =>
+      Other.(e.selected) = e.published)
+}
+assert FinalNonownerScheduleIndependentOwnerOnly {
+  always (all disj e, f: Execution |
+    (e.policy = OwnerOnly and f.policy = OwnerOnly and
+     completed[e] and completed[f]) =>
+      result[Nonowner.(e.selected)] = result[Nonowner.(f.selected)])
+}
 pred OwnerFirst {
   some e: Execution | {
     e.policy = Fixed
@@ -307,6 +335,7 @@ pred OwnerFirst {
     eventually completed[e]
     eventually (e.event = Start and e.actor = Nonowner and Owner.(e.phase) = Done)
     eventually (Nonowner.(e.phase) = Done and Nonowner.(e.selected) = AnyHint)
+    eventually (e.event = Start and e.actor = Other and Nonowner.(e.phase) = Done)
   }
 }
 pred NonownerFirst {
@@ -344,6 +373,36 @@ pred OtherOnFreshThreadState {
     e.policy = Fixed and e.event = Read and e.actor = Other and
     Owner.(e.phase) = Done and Other.(e.thread) != Owner.(e.thread) and
     no Other.(e.thread).(e.installed) and Other.(e.selected) = e.published)
+}
+// Paired OwnerOnly schedules, matching OwnerFirst and NonownerFirst.
+pred OwnerOnlyOwnerFirst {
+  some e: Execution | {
+    OwnerThenBoth[e, OwnerOnly]
+    eventually (e.event = Start and e.actor = Nonowner and Owner.(e.phase) = Done)
+    eventually (e.event = Start and e.actor = Other and Nonowner.(e.phase) = Done)
+  }
+}
+pred OwnerOnlyNonownerFirst {
+  some e: Execution | {
+    e.policy = OwnerOnly
+    after (e.event = Start and e.actor = Nonowner)
+    always no Other.(e.parent)
+    eventually completed[e]
+    eventually (e.event = ForceOwner and e.actor = Nonowner)
+  }
+}
+// Nonvacuity control: OwnerOnly admits both completed orders in one comparison.
+pred OwnerOnlySchedulesExist {
+  some disj e, f: Execution | {
+    e.policy = OwnerOnly
+    f.policy = OwnerOnly
+    after (e.event = Start and e.actor = Owner and
+      f.event = Start and f.actor = Nonowner)
+    always (no Other.(e.parent) and no Other.(f.parent))
+    eventually (completed[e] and completed[f])
+    eventually (e.event = Start and e.actor = Nonowner and Owner.(e.phase) = Done)
+    eventually (f.event = ForceOwner and f.actor = Nonowner)
+  }
 }
 // Nonvacuity control: the definitional reference admits both completed orders.
 pred ReferenceSchedulesExist {
@@ -385,6 +444,18 @@ check FinalNonownerScheduleIndependentReference for 16 but exactly 2 Execution,
 run OwnerFirst for 16 but exactly 1 Execution, exactly 1 ThreadState,
   16..16 steps expect 1
 run NonownerFirst for 16 but exactly 1 Execution, exactly 1 ThreadState,
+  16..16 steps expect 1
+check NonownerReadsPublicationOwnerOnly for 16 but exactly 1 Execution,
+  exactly 2 ThreadState, 16..16 steps expect 0
+check IndependentAfterPublicationOwnerOnly for 16 but exactly 1 Execution,
+  exactly 2 ThreadState, 16..16 steps expect 0
+check FinalNonownerScheduleIndependentOwnerOnly for 16 but exactly 2 Execution,
+  exactly 1 ThreadState, 16..16 steps expect 0
+run OwnerOnlyOwnerFirst for 16 but exactly 1 Execution, exactly 1 ThreadState,
+  16..16 steps expect 1
+run OwnerOnlyNonownerFirst for 16 but exactly 1 Execution, exactly 1 ThreadState,
+  16..16 steps expect 1
+run OwnerOnlySchedulesExist for 16 but exactly 2 Execution, exactly 1 ThreadState,
   16..16 steps expect 1
 run OldOtherBeforeNonowner { OtherBeforeNonowner[Old] } for 16 but
   exactly 1 Execution, exactly 1 ThreadState, 16..16 steps expect 1
