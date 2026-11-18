@@ -63,11 +63,12 @@ At `2d1d8c3`:
 - `Binding::LambdaParameter` resolves through `check_shortcut` (`alt/traits.rs`).
   L is not a memoized calculation, so N depends on O directly and π reaches it
   outside any convergence check (condition 2).
-- Only the non-SCC recording path calls `before_record` →
-  `publish_owned_lambda_param_types`, so an owner solved inside an SCC
-  publishes nothing. fbsource master at `9d2359c` also publishes from each
-  non-cold iteration, into the shared `Answers` map and before the SCC commits
-  (condition 3).
+- The iterative SCC path calls `before_record` →
+  `publish_owned_lambda_param_types` in every warm iteration, copying the
+  owner's thread-local slot into the shared `Answers` map before the SCC
+  commits. The discovery pass and cold iteration publish nothing, and
+  `commit_final_answers` publishes no lambda types. The map is last writer
+  wins and is never rolled back (condition 3).
 - `ThreadState::lambda_param_types` has no reset at iteration boundaries; only
   speculative calls snapshot and restore it (`alt/call.rs`) (condition 1).
 
